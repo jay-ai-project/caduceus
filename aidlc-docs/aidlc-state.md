@@ -84,12 +84,16 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - Spike (WSL2/Docker): bridge gw `172.17.0.1` reachable from containers unconditionally; `host.docker.internal` needs `--add-host` (no Docker Desktop). Decision: AI-Gateway bind bridge IP:9701, Control API 127.0.0.1:9700, advertise = bridge gw IP.
   - shared-infrastructure.md created (ports/binds/paths/packaging — shared by all units)
   - **Code**: `caduceus/{common,aigateway}/*` + `pyproject.toml` + `tests/{unit,pbt}` + README. **26/26 tests pass** (venv). PBT caught & fixed a real bug (redact regex ASCII-only → non-ASCII token leak).
-- [ ] **U2 Registry & Provisioner**: FD · NFR-Req · NFR-Design · Infra · CodeGen
+- [~] **U2 Registry & Provisioner**: [x] FD · [x] NFR-Req · [x] NFR-Design · [x] Infra · [ ] CodeGen
+  - Spike: hermes-agent v0.17.0 (NousResearch git project, official Dockerfile); custom_providers list (name/base_url/model/api_mode); bearer via OpenAI-SDK key. Image pinned 0.17.0; agent→AIGW via `172.17.0.1:9701` + OPENAI_API_KEY=token.
+  - Infra: **slim image (Q1=A)**; provisioning sequence (create→cp config+env→serve 0.0.0.0:9119→sbx ports publish→health); added `AgentRecord.serve_auth`. Build-time validation items flagged for Build&Test.
+  - FD decisions: name→`cad-<name>` (Q1=A); remote = token+guidance, read-only config (Q2=A); **remote start/stop not possible (user-confirmed, BR-A10)**. Stateful registry PBT planned.
 - [ ] **U3 Transport & Chat**: FD · NFR-Req · NFR-Design · Infra · CodeGen
 - [ ] **U4 CLI / Daemon / Config**: FD · NFR-Req · NFR-Design · Infra · CodeGen
 - [ ] Build and Test (after all units)
 
 ## Current Status
 - **Lifecycle Phase**: INCEPTION → (about to enter CONSTRUCTION)
-- **Current Stage**: CONSTRUCTION — U1 AI-Gateway → Code Generation complete (U1 fully done; awaiting approval)
-- **Next Stage**: U2 Agent Registry & Provisioner → Functional Design
+- **Current Stage**: CONSTRUCTION — U2 Registry & Provisioner → Infrastructure Design complete (awaiting approval)
+- **Next Stage**: U2 → Code Generation (registry/provisioner/image)
+- **U1 AI-Gateway**: ✅ COMPLETE (committed 8f25e5d)
