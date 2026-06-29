@@ -75,12 +75,14 @@
 ## Resiliency Scope (decided)
 - Operational context: **Personal local tool** (R1=A). RTO/RPO/DR: **N/A** cross-region (R2=A).
 - Applicable now: RESILIENCY-01 (criticality), -02 (captured N/A), -05 (logging only), -06 (health checks), -10 (timeouts/graceful degradation), -12 (state durability), + process supervision.
-- Deferred to NFR Design: RESILIENCY-03, -04, -14, -15.
+- Resolved at U1 NFR Design (project-wide): RESILIENCY-03 = **N/A exempt** (personal tool); RESILIENCY-04 = **GH Actions CI (pytest+Hypothesis, seed-logged) + reinstall-previous rollback + direct install**; RESILIENCY-14 = **lightweight fault-injection integration tests**; RESILIENCY-15 = **lightweight log-based triage + restart procedures**.
 - N/A (cloud/HA): RESILIENCY-07, -08, -09, -11, -13.
 
 ### 🟢 CONSTRUCTION PHASE (FULL per-unit loop, Q3=B; order U1→U2→U3→U4)
 Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR Design → Infrastructure Design → Code Generation. Cross-cutting decisions set in U1, inherited (adaptive depth) by U2–U4. Build & Test once after all units.
-- [ ] **U1 AI-Gateway**: FD · NFR-Req · NFR-Design · Infra · CodeGen
+- [~] **U1 AI-Gateway**: [x] FD · [x] NFR-Req · [x] NFR-Design · [x] Infra · [ ] CodeGen
+  - Spike (WSL2/Docker): bridge gw `172.17.0.1` reachable from containers unconditionally; `host.docker.internal` needs `--add-host` (no Docker Desktop). Decision: AI-Gateway bind bridge IP:9701, Control API 127.0.0.1:9700, advertise = bridge gw IP.
+  - shared-infrastructure.md created (ports/binds/paths/packaging — shared by all units)
 - [ ] **U2 Registry & Provisioner**: FD · NFR-Req · NFR-Design · Infra · CodeGen
 - [ ] **U3 Transport & Chat**: FD · NFR-Req · NFR-Design · Infra · CodeGen
 - [ ] **U4 CLI / Daemon / Config**: FD · NFR-Req · NFR-Design · Infra · CodeGen
@@ -88,5 +90,5 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
 
 ## Current Status
 - **Lifecycle Phase**: INCEPTION → (about to enter CONSTRUCTION)
-- **Current Stage**: Units Generation complete (awaiting approval)
-- **Next Stage**: CONSTRUCTION — U1 AI-Gateway → Functional Design
+- **Current Stage**: CONSTRUCTION — U1 AI-Gateway → Infrastructure Design complete (awaiting approval)
+- **Next Stage**: U1 AI-Gateway → Code Generation (first code written)
