@@ -30,8 +30,8 @@ Ports are configurable; chosen to avoid clashes with hermes serve (9119) and lla
 ## Configuration keys (caduceus Settings; env > file > default)
 | Key | Default |
 |---|---|
-| `upstream_base_url` | `http://localhost:9292/v1` |
-| `default_model` | `llamacpp/gemma-4-12b` |
+| `upstream_base_url` | **REQUIRED — no default** (env-specific; e.g. the user's llama-swap). Gateway refuses to start until set; U4 prompts interactively. |
+| `default_model` | **REQUIRED — no default** (env-specific). |
 | `control_bind` | `127.0.0.1:9700` |
 | `aigateway_bind` | `<bridge-ip>:9701` (auto-detect bridge gw) |
 | `aigateway_advertise_host` | auto-detected bridge gw IP (alt: `host.docker.internal`) |

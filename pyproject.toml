@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "caduceus"
+version = "0.1.0"
+description = "Caduceus — a gateway hub + CLI for orchestrating sandboxed hermes agents"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "httpx>=0.27",
+    "pydantic>=2",
+    # typer (CLI) and websockets (transport) are added in U4/U3.
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "anyio>=4",
+    "hypothesis>=6",
+]
+
+# Console script `caduceus` is registered in U4 (CLI). Until then the package is import-only.
+
+[tool.hatch.build.targets.wheel]
+packages = ["caduceus"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+pythonpath = ["."]
+
+# Hypothesis seed/reproduction logging (PBT-08) is configured in tests/conftest.py via profiles.

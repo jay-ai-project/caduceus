@@ -79,11 +79,12 @@ Text alternative: The CLI calls the daemon over a loopback control API. The daem
 - **FR-G2**: `caduceus gateway start|stop|status` manages the daemon lifecycle and reports health.
 - **FR-G3**: The daemon hosts AI-Gateway, agent chat/control hub, and agent registry/state.
 - **FR-G4**: CLI↔daemon transport is loopback-only by default (HTTP on 127.0.0.1 or a Unix socket).
+- **FR-G5** (added 2026-06-29, change request): On `gateway start`, if the required upstream URL/model are unset, caduceus **guides the user to configure them** (interactive prompt) and persists them; if already set, it reuses them. Until configured, the gateway refuses to serve (`ConfigError`). *Interactive setup is implemented in U4; the required-config validation seam lands in U1 (`Settings.ensure_configured`).*
 
 ### 4.2 AI-Gateway (LLM proxy)
 - **FR-P1**: Expose an OpenAI-compatible API: `POST /v1/chat/completions` (including streaming/SSE) and `GET /v1/models`.
-- **FR-P2**: Default behavior routes agent LLM calls to upstream `http://localhost:9292/v1`, default model `llamacpp/gemma-4-12b`.
-- **FR-P3**: Upstream base URL and default model are configurable via caduceus config.
+- **FR-P2**: Agent LLM calls are routed to a **configured** upstream + model. The upstream base URL and default model are **required configuration with no baked-in defaults** — they are environment-specific and provided by the user (the author's environment, for example, is a local llama-swap at `http://localhost:9292/v1` with model `llamacpp/gemma-4-12b`, but that is a personal value, not a code default).
+- **FR-P3**: Upstream base URL and default model are configurable via caduceus config/env; the gateway refuses to serve until they are set.
 - **FR-P4**: (Designed-for, v2) per-agent override of model and/or upstream URL; v1 architecture must not preclude it.
 - **FR-P5**: The proxy is reachable from inside sandboxes via `host.docker.internal:<port>`; the daemon binds so both CLI (loopback) and sandbox traffic work.
 - **FR-P6**: Streaming is passed through end-to-end (agent ← AI-Gateway ← upstream) without buffering whole responses.

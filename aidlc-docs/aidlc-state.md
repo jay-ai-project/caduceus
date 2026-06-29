@@ -80,9 +80,10 @@
 
 ### 🟢 CONSTRUCTION PHASE (FULL per-unit loop, Q3=B; order U1→U2→U3→U4)
 Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR Design → Infrastructure Design → Code Generation. Cross-cutting decisions set in U1, inherited (adaptive depth) by U2–U4. Build & Test once after all units.
-- [~] **U1 AI-Gateway**: [x] FD · [x] NFR-Req · [x] NFR-Design · [x] Infra · [ ] CodeGen
+- [x] **U1 AI-Gateway** ✅ COMPLETE: [x] FD · [x] NFR-Req · [x] NFR-Design · [x] Infra · [x] CodeGen
   - Spike (WSL2/Docker): bridge gw `172.17.0.1` reachable from containers unconditionally; `host.docker.internal` needs `--add-host` (no Docker Desktop). Decision: AI-Gateway bind bridge IP:9701, Control API 127.0.0.1:9700, advertise = bridge gw IP.
   - shared-infrastructure.md created (ports/binds/paths/packaging — shared by all units)
+  - **Code**: `caduceus/{common,aigateway}/*` + `pyproject.toml` + `tests/{unit,pbt}` + README. **26/26 tests pass** (venv). PBT caught & fixed a real bug (redact regex ASCII-only → non-ASCII token leak).
 - [ ] **U2 Registry & Provisioner**: FD · NFR-Req · NFR-Design · Infra · CodeGen
 - [ ] **U3 Transport & Chat**: FD · NFR-Req · NFR-Design · Infra · CodeGen
 - [ ] **U4 CLI / Daemon / Config**: FD · NFR-Req · NFR-Design · Infra · CodeGen
@@ -90,5 +91,5 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
 
 ## Current Status
 - **Lifecycle Phase**: INCEPTION → (about to enter CONSTRUCTION)
-- **Current Stage**: CONSTRUCTION — U1 AI-Gateway → Infrastructure Design complete (awaiting approval)
-- **Next Stage**: U1 AI-Gateway → Code Generation (first code written)
+- **Current Stage**: CONSTRUCTION — U1 AI-Gateway → Code Generation complete (U1 fully done; awaiting approval)
+- **Next Stage**: U2 Agent Registry & Provisioner → Functional Design
