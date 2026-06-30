@@ -97,6 +97,15 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
         return await _endpoint_reachable(settings.upstream_base_url)
 
     async def _transport_healthy(rec: AgentRecord) -> Optional[bool]:
+        # Local agents are driven over `hermes acp` (stdio) — there is no
+        # persistent agent process to probe; spawning a throwaway `hermes acp`
+        # every deep-health sweep (30s) just re-runs hermes' provider/model
+        # probing (a burst of upstream 404s) for no signal. The running sandbox
+        # (shallow check) is the liveness signal; real ACP failures surface on
+        # chat (the pooled transport is evicted + respawned). Skip → None.
+        if rec.kind == AgentKind.local:
+            return None
+        # Remote agents have a persistent `hermes serve` endpoint worth probing.
         t = Transport.for_agent(rec)
         try:
             hs = await t.health()

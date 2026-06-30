@@ -74,6 +74,13 @@ longer rolls back a successfully-provisioned agent).
   cold-start + provider/model probing (the repeated `/api/tags`, `/props`,
   `/v1/models/default` 404s) is paid once, not every turn. Measured: cold turn
   ~13 s → warm turn ~8 s. (Idle reaping of pooled processes is a future nicety.)
+- **Periodic probe storm** — the Supervisor's 30 s **deep** health sweep was
+  spawning a throwaway `hermes acp` per local agent each cycle, re-triggering the
+  same probe 404s on a loop. Local ACP agents have no persistent process to probe,
+  so deep health now **skips the transport sub-probe for local agents** (running
+  sandbox = liveness; real failures surface on chat). Verified: 0 probes / 0
+  gateway requests over 75 s idle with a running agent, while supervisor
+  auto-restart still recovers a stopped sandbox (~40 s).
 - **Agent file outputs** — the ACP session `cwd` is now the agent's bind-mounted
   host workspace (`AgentRecord.workspace_path`), so files the agent writes land in
   `~/.caduceus/agents/<sandbox>/workspace/` on the host and persist (verified:
