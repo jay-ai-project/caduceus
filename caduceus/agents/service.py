@@ -49,7 +49,6 @@ class AgentService:
             raise invalid_request_error(f"agent '{name}' already exists")
 
         token = mint_token()
-        serve_auth = mint_token()
         sb = sandbox_name(name)
         tag = await self.images.ensure_image(self.image_tag)
 
@@ -58,19 +57,25 @@ class AgentService:
             await self.provisioner.create_sandbox(sb, tag, {"OPENAI_API_KEY": token})
             created = True
             await self.provisioner.write_file(
-                sb, HERMES_CONFIG_PATH, render_hermes_config(self.aigateway_url, self.model_alias)
+                sb, HERMES_CONFIG_PATH, render_hermes_config(self.aigateway_url, self.model_alias, api_key=token)
             )
-            port = await self.provisioner.start_serve(sb, serve_auth)
-
+            # No serve port/endpoint: local agents are driven on demand over
+            # `hermes acp` (stdio) via the AcpTransport — the running sandbox is
+            # the only liveness requirement (BR-A12; ACP transport, 2026-06-30).
             now = _now()
             rec = AgentRecord(
-                name=name, kind=AgentKind.local, token=token, serve_auth=serve_auth,
-                sandbox_name=sb, serve_port=port, endpoint=f"http://127.0.0.1:{port}",
-                model_alias=self.model_alias, lifecycle=Lifecycle.running,
+                name=name, kind=AgentKind.local, token=token,
+                sandbox_name=sb, model_alias=self.model_alias, lifecycle=Lifecycle.running,
                 created_at=now, updated_at=now,
             )
             await self.registry.upsert(rec)
-            rec.last_health = await self.health.check(rec, deep=False)
+            # Best-effort first health snapshot — a probe error must NOT tear down
+            # a successfully-provisioned agent (RESILIENCY; Build & Test 2026-06-30).
+            try:
+                rec.last_health = await self.health.check(rec, deep=False)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("initial health probe for %s failed: %s", name, exc)
+                rec.last_health = None
             rec.updated_at = _now()
             await self.registry.upsert(rec)
             return rec

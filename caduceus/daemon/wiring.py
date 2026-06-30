@@ -124,12 +124,11 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
                                transport_factory=Transport.for_agent)
 
     async def _restart(rec: AgentRecord) -> None:
-        # relaunch the agent's hermes serve and re-publish its port (BR-W2).
-        if rec.sandbox_name is None or rec.serve_auth is None:
-            raise RuntimeError("cannot restart: missing sandbox/serve_auth")
-        port = await provisioner.start_serve(rec.sandbox_name, rec.serve_auth)
-        rec.serve_port = port
-        rec.endpoint = f"http://127.0.0.1:{port}"
+        # ACP transport: there is no serve process/port — "restart" means ensure
+        # the sandbox is running again (BR-W2). Chat re-spawns `hermes acp` on demand.
+        if rec.sandbox_name is None:
+            raise RuntimeError("cannot restart: missing sandbox")
+        await provisioner.start(rec.sandbox_name)
         rec.lifecycle = Lifecycle.running
         rec.updated_at = _now()
         await registry.upsert(rec)

@@ -77,7 +77,18 @@ class Transport(ABC):
     # ---- factory -----------------------------------------------------
     @staticmethod
     def for_agent(rec: AgentRecord) -> "Transport":
-        """Select a transport for an agent. v1 = ServeTransport for every agent."""
+        """Select a transport for an agent.
+
+        Local sandboxed agents are driven over `hermes acp` (stdio) via
+        `AcpTransport`; remote registered agents keep the `hermes serve`
+        (JSON-RPC/WebSocket) `ServeTransport`.
+        """
+        from caduceus.common.models import AgentKind
+
+        if rec.kind == AgentKind.local:
+            from caduceus.transport.acp import AcpTransport
+
+            return AcpTransport(rec)
         from caduceus.transport.serve import ServeTransport
 
         return ServeTransport(rec)

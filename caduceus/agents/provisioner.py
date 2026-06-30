@@ -5,13 +5,16 @@ is the real implementation over the `sbx` CLI. Unit tests use a FakeProvisioner;
 the real impl is exercised in Build & Test integration.
 
 Implementation note: exact `sbx` sub-commands and the in-sandbox hermes config
-path / `hermes serve` flags are validated in Build & Test (U2 Infra Design §8).
+path were validated in Build & Test (2026-06-30). Local agents are driven over
+`hermes acp` (stdio) by the AcpTransport, so the provisioner only manages sandbox
+lifecycle + config I/O — there is no `hermes serve` start / port publishing.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Protocol
 
 from caduceus.common.errors import upstream_error
@@ -21,13 +24,11 @@ log = get_logger("caduceus.provisioner")
 
 # In-sandbox hermes config path (HERMES_HOME); validated in Build & Test.
 HERMES_CONFIG_PATH = "/root/.hermes/config.yaml"
-SERVE_PORT = 9119
 
 
 class Provisioner(Protocol):
     async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None: ...
     async def write_file(self, sandbox: str, path: str, content: str) -> None: ...
-    async def start_serve(self, sandbox: str, serve_auth: str) -> int: ...
     async def stop(self, sandbox: str) -> None: ...
     async def start(self, sandbox: str) -> None: ...
     async def remove(self, sandbox: str) -> None: ...
@@ -38,10 +39,14 @@ class Provisioner(Protocol):
 class SbxProvisioner:
     """Real provisioner over the `sbx` CLI."""
 
-    def __init__(self, sbx_bin: str = "sbx", aigateway_url: str = "", default_timeout: float = 30.0):
+    def __init__(self, sbx_bin: str = "sbx", aigateway_url: str = "", default_timeout: float = 30.0,
+                 workspace_root: str = "~/.caduceus/agents"):
         self._sbx = sbx_bin
         self._aigateway_url = aigateway_url
         self._timeout = default_timeout
+        # `sbx create shell` requires a host workspace PATH (mounted in-sandbox).
+        # caduceus agents don't share the host repo, so each gets a dedicated dir.
+        self._workspace_root = Path(workspace_root).expanduser()
 
     async def _run(self, *args: str, timeout: float | None = None, stdin: bytes | None = None) -> tuple[int, bytes, bytes]:
         proc = await asyncio.create_subprocess_exec(
@@ -64,7 +69,9 @@ class SbxProvisioner:
         return out
 
     async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None:
-        await self._check("create", "shell", "-t", image, "--name", sandbox, "-q", timeout=300.0)
+        workspace = self._workspace_root / sandbox / "workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
+        await self._check("create", "shell", str(workspace), "-t", image, "--name", sandbox, "-q", timeout=300.0)
         # Apply env inside the sandbox (kept out of argv where possible via the agent config/env file).
         for key, value in env.items():
             await self._check(
@@ -73,25 +80,21 @@ class SbxProvisioner:
             )
 
     async def write_file(self, sandbox: str, path: str, content: str) -> None:
-        # Write via stdin to avoid putting content on the command line.
+        # Write via stdin to avoid putting content on the command line; the
+        # config carries the agent's bearer token, so restrict perms to 600.
         await self._check(
-            "exec", "-i", sandbox, "sh", "-lc", f'mkdir -p "$(dirname {_sh(path)})" && cat > {_sh(path)}',
+            "exec", "-i", sandbox, "sh", "-lc",
+            f'mkdir -p "$(dirname {_sh(path)})" && cat > {_sh(path)} && chmod 600 {_sh(path)}',
             stdin=content.encode("utf-8"),
         )
-
-    async def start_serve(self, sandbox: str, serve_auth: str) -> int:
-        await self._check(
-            "exec", "-d", sandbox, "sh", "-lc",
-            f'. ~/.caduceus_env 2>/dev/null; HERMES_SERVE_PASSWORD={_sh(serve_auth)} hermes serve --host 0.0.0.0 --port {SERVE_PORT}',
-        )
-        out = await self._check("ports", sandbox, "--publish", str(SERVE_PORT), "--json", timeout=15.0)
-        return _parse_published_port(out, SERVE_PORT)
 
     async def stop(self, sandbox: str) -> None:
         await self._check("stop", sandbox, timeout=60.0)
 
     async def start(self, sandbox: str) -> None:
-        await self._check("start", sandbox, timeout=60.0)
+        # sbx has no `start` verb; `sbx exec` transparently starts a stopped
+        # sandbox (Build & Test, Finding J). A no-op command suffices.
+        await self._check("exec", sandbox, "sh", "-lc", "true", timeout=60.0)
 
     async def remove(self, sandbox: str) -> None:
         await self._check("rm", "-f", sandbox, timeout=60.0)
@@ -102,12 +105,17 @@ class SbxProvisioner:
         if rc != 0:
             return "missing"
         try:
-            for item in _json.loads(out or "[]"):
-                if item.get("name") == sandbox or item.get("Name") == sandbox:
-                    state = (item.get("status") or item.get("State") or "").lower()
-                    return "running" if "run" in state else "stopped"
+            data = _json.loads(out or "{}")
         except (ValueError, TypeError):
-            pass
+            return "missing"
+        # `sbx ls --json` → {"sandboxes": [{"name","status",...}]} (Build & Test, Finding H)
+        items = data.get("sandboxes", []) if isinstance(data, dict) else data
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("name") == sandbox or item.get("Name") == sandbox:
+                state = (item.get("status") or item.get("State") or "").lower()
+                return "running" if "run" in state else "stopped"
         return "missing"
 
     async def logs(self, sandbox: str, follow: bool = False) -> AsyncIterator[str]:
@@ -123,17 +131,3 @@ class SbxProvisioner:
 def _sh(value: str) -> str:
     """Single-quote a value for safe embedding in `sh -lc`."""
     return "'" + str(value).replace("'", "'\\''") + "'"
-
-
-def _parse_published_port(out: bytes, sandbox_port: int) -> int:
-    import json as _json
-
-    try:
-        data = _json.loads(out or "[]")
-    except (ValueError, TypeError):
-        raise upstream_error("could not parse `sbx ports` output")
-    entries = data if isinstance(data, list) else data.get("ports", [])
-    for entry in entries:
-        if int(entry.get("sandbox_port", entry.get("SandboxPort", -1))) == sandbox_port:
-            return int(entry.get("host_port", entry.get("HostPort")))
-    raise upstream_error(f"published port for {sandbox_port} not found")

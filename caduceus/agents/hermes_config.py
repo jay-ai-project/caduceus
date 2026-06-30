@@ -21,20 +21,30 @@ def provider_settings(aigateway_url: str, model_alias: str = "default") -> dict:
     }
 
 
-def render_hermes_config(aigateway_url: str, model_alias: str = "default") -> str:
-    """Render the hermes config.yaml text routing the LLM through caduceus."""
-    return (
-        "model:\n"
-        "  provider: custom\n"
-        f"  default: {model_alias}\n"
-        f"  base_url: {aigateway_url}\n"
-        "  api_mode: chat_completions\n"
-        "custom_providers:\n"
-        "  - name: caduceus\n"
-        f"    base_url: {aigateway_url}\n"
-        f"    model: {model_alias}\n"
-        "    api_mode: chat_completions\n"
-    )
+def render_hermes_config(aigateway_url: str, model_alias: str = "default", api_key: str | None = None) -> str:
+    """Render the hermes config.yaml text routing the LLM through caduceus.
+
+    Matches the verified hermes 0.17.0 `model:` schema (Build & Test 2026-06-30):
+    a custom provider with base_url + default model alias.
+
+    The bearer token is written inline as `api_key` (and `key_env` is set as a
+    backup). hermes refuses to forward `OPENAI_API_KEY` to a non-openai.com
+    base_url (#28660), and its streaming-completion client does not pick up
+    `key_env` for every path — so an inline `api_key` is required for the agent
+    to authenticate to the caduceus AI-Gateway. The file lives only inside the
+    agent's isolated sandbox (written 600).
+    """
+    lines = [
+        "model:",
+        f"  default: {model_alias}",
+        "  provider: custom",
+        f"  base_url: {aigateway_url}",
+        "  api_mode: chat_completions",
+    ]
+    if api_key:
+        lines.append(f"  api_key: {api_key}")
+        lines.append("  key_env: OPENAI_API_KEY")
+    return "\n".join(lines) + "\n"
 
 
 def remote_setup_guidance(aigateway_url: str, token: str, model_alias: str = "default") -> str:

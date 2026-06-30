@@ -73,7 +73,9 @@ class GatewayService:
             self._started_at = time.time()
             services = build_services(self.settings, state_dir=self.state_dir)
             control_app, aigateway_app = build_apps(services)
-            services.supervisor.start()
+            # NOTE: the Supervisor schedules an asyncio task, so it must be started
+            # from *inside* the running loop (see `_serve`), not here — starting it
+            # before `asyncio.run` raises "no running event loop".
             self._serve(control_app, aigateway_app, services)  # Build & Test (uvicorn)
         finally:
             self.lock.release()
@@ -132,6 +134,7 @@ class GatewayService:
         a = uvicorn.Server(uvicorn.Config(aigateway_app, host=a_host, port=int(a_port), log_level="info"))
 
         async def _run():
+            services.supervisor.start()  # inside the loop (BR-S; see start())
             try:
                 await asyncio.gather(c.serve(), a.serve())
             finally:

@@ -44,7 +44,8 @@ async def test_create_duplicate_rejected(tmp_path):
 
 
 async def test_create_rollback_on_failure(tmp_path):
-    prov = FakeProvisioner(fail_on="start_serve")
+    # write_file runs after the sandbox is created → exercises the compensation path
+    prov = FakeProvisioner(fail_on="write_file")
     reg, svc, _ = make_service(tmp_path, prov)
     with pytest.raises(ProxyError):
         await svc.create("a")

@@ -99,10 +99,12 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - FD decisions: Q1=foreground default + `-d` daemonize (single-instance pid/lock); **Q2=B hot-reload default + per-change-kind `ReloadStrategy` seam (CHANGE_KIND_STRATEGY) for future selective restart**; Q3=A interactive config bootstrap + `~/.caduceus/config.toml`; Q4=A apply→read-back+health verify; Q5=B `--soul`/`--soul-file` both (reject if both set); Q6=A human default + `--json` + exit codes 0/2/1.
   - Artifacts: domain-entities.md, business-logic-model.md (L1-L6 incl. composition-root wiring of U1/U2/U3; 6 PBT-01 props), business-rules.md (BR-G/E/L/O/W). U4 wires injected U3 callables + U1 token_lookup.
 - [x] **Build and Test** ✅ COMPLETE & APPROVED (after all units)
-  - **Build**: ✅ editable install + wheel (`dist/caduceus-0.1.0-py3-none-any.whl`) build OK; console script `caduceus` verified; all 43 modules import OK.
-  - **Tests**: ✅ **132/132 pass** (109 unit + 23 PBT) on CPython 3.12.3, `.venv`.
-  - **Integration**: 6 scenarios documented (host-dependent: Docker+sbx+hermes+upstream) — manual smoke, not auto-run in v1.
-  - **Performance**: N/A as gate (personal local tool); lightweight streaming-TTFB/timeout/memory smoke documented.
+  - **Build**: ✅ editable install + wheel build OK; console script verified; all modules import OK.
+  - **Tests**: ✅ **141/141 pass** (118 unit + 23 PBT) on CPython 3.12.3, `.venv` (+9 AcpTransport tests).
+  - **Integration**: ✅ **all 6 scenarios PASS live** (Docker 29.4.0 + sbx + hermes 0.17.0 + llama-swap): CLI↔daemon, AI-Gateway auth, provision, E2E LLM, ACP chat (streamed "PONG"/"OK"), supervisor auto-restart (~50s).
+  - **10 defects found & fixed (A–J)** during integration — see build-and-test-summary.md. Biggest: **transport pivot `hermes serve`→`hermes acp` (stdio)** because serve needs a full Node web build (contradicts slim image). User-approved (image-packaging→ACP).
+  - **Code changes (post-CONSTRUCTION, in Build & Test):** new `caduceus/transport/acp.py` (AcpTransport) + `Transport.for_agent` local→ACP; provisioner/service/health/wiring rewired (no serve/port); `images.py` auto-loads image into sbx; hermes config writes inline `api_key`; `cli/client.py` provision timeout; daemon supervisor boot fix; Dockerfile `[acp]` extra + correct git ref. No new caduceus runtime dependency (raw JSON-RPC).
+  - **Performance**: N/A as gate (personal local tool).
   - Artifacts: build-instructions.md, unit-test-instructions.md, integration-test-instructions.md, performance-test-instructions.md, build-and-test-summary.md.
 
 ## Current Status

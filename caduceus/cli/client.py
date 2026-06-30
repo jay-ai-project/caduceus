@@ -57,8 +57,14 @@ class ControlAPIClient:
     def status(self) -> GatewayStatus:
         return GatewayStatus.from_dict(self._json(self._c().get("/status")))
 
+    #: provisioning (image build + sandbox create) can take minutes — well past
+    #: the default per-call timeout (Build & Test, Finding E, 2026-06-30).
+    PROVISION_TIMEOUT = 1800.0
+
     def create_agent(self, spec: CreateSpec) -> AgentView:
-        return AgentView.from_dict(self._json(self._c().post("/agents", json=spec.to_dict())))
+        return AgentView.from_dict(
+            self._json(self._c().post("/agents", json=spec.to_dict(), timeout=self.PROVISION_TIMEOUT))
+        )
 
     def register_agent(self, spec: RegisterSpec) -> dict:
         return self._json(self._c().post("/agents/register", json=spec.to_dict()))

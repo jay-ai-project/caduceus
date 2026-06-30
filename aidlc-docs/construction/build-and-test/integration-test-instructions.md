@@ -1,5 +1,13 @@
 # Integration Test Instructions
 
+> **EXECUTED 2026-06-30 — all 6 scenarios PASS.** During execution the local
+> transport was pivoted from `hermes serve` (web dashboard; needs a Node build)
+> to **`hermes acp` (stdio JSON-RPC)**, spawned per chat via `sbx exec -i`. The
+> caduceus daemon auto-builds the image and loads it into sbx's store
+> (`docker save | sbx template load`). References to `hermes serve` / published
+> ports below are historical for **local** agents (remote agents still use
+> `hermes serve`). See `build-and-test-summary.md` for results and Findings A–J.
+
 ## Purpose
 Validate the cross-unit seams that are **intentionally excluded** from unit tests
 because they cross a real process / IO / network boundary: the AI-Gateway → upstream
@@ -21,10 +29,12 @@ environment (Docker Engine + `sbx` + `hermes` image + an upstream LLM).
 
 ## Setup Integration Test Environment
 
-### 1. Build the agent image and start prerequisites
+### 1. Prerequisites (the daemon builds + loads the image automatically)
 ```bash
-# hermes agent image (pinned hermes-agent 0.17.0; context images/hermes/)
-sbx template build -t caduceus/hermes:0.17.0 images/hermes/   # or the project's documented build cmd
+# The caduceus daemon builds images/hermes (pinned hermes-agent 0.17.0 == git
+# tag v2026.6.19, with the [acp] extra) on first `agent create`, then loads it
+# into sbx's image store via `docker save | sbx template load`. To pre-build:
+docker build -t caduceus/hermes:0.17.0 --build-arg HERMES_GIT_REF=v2026.6.19 images/hermes
 docker info >/dev/null            # confirm Docker Engine reachable
 sbx ls >/dev/null                 # confirm sbx CLI works
 # Upstream LLM (host llama-swap) reachable at the configured base url, e.g.:
@@ -71,15 +81,15 @@ caduceus gateway status           # expect: running, Control API 127.0.0.1:9700,
 - **Steps**: `caduceus agent chat demo --message "say hello in one word"` (or exec hermes inside the sandbox).
 - **Expected**: streamed assistant tokens; the agent's LLM call egressed through the AI-Gateway (verify a `/v1/chat/completions` entry in `~/.caduceus/logs/`).
 
-### Scenario 5 — Chat over the real `hermes serve` transport
-- **Description**: exercises `transport/serve.py` `_WIRE_*` real JSON-RPC/WS framing + session recreate (U3 Q1) — the path unit-untested by design.
-- **Steps**: open a chat, send 2 turns, confirm session persistence/auto-resume; cancel mid-stream (cooperative cancel, U3 Q6).
-- **Expected**: ordered streamed events; second turn shares session; cancel stops the stream without killing the agent.
+### Scenario 5 — Chat over the real ACP transport
+- **Description**: exercises `transport/acp.py` against `hermes acp` (stdio JSON-RPC) spawned via `sbx exec -i` — initialize → session/new (or session/load to resume, U3 Q1) → session/prompt; the path unit-tested with a fake process and integration-tested here.
+- **Steps**: `caduceus agent chat demo "..."`; send 2 turns, confirm session persistence/auto-resume; cancel mid-stream (cooperative cancel → `session/cancel`, U3 Q6).
+- **Expected**: streamed `agent_message_chunk` tokens; second turn shares the session; cancel stops the stream without killing the agent. **Result: PASS** — streamed "PONG"/"OK".
 
 ### Scenario 6 — Supervisor fault-injection (RESILIENCY-14, lightweight)
-- **Description**: validate Supervisor defaults (30s sweep; 2 consecutive fails → restart; exp backoff 5/15/45s cap ~120s; 3 restart-fails → circuit open → `failed`; reset on manual start) against a real agent.
-- **Steps**: kill the agent container out-of-band (`docker stop cad-demo`); observe Supervisor detect → restart with backoff; repeat to force circuit-open; then `caduceus agent start demo` to reset.
-- **Expected**: state transitions and backoff timing match the design; circuit opens after 3 restart failures; manual start clears it; all transitions logged.
+- **Description**: validate Supervisor defaults (30s sweep; 2 consecutive fails → restart; exp backoff; circuit open after repeated restart failures) against a real agent. Under ACP "restart" = ensure the sandbox is running again (`sbx exec` auto-starts).
+- **Steps**: stop the sandbox out-of-band (`sbx stop cad-demo`); observe the Supervisor detect → restart; (optionally repeat to force circuit-open); `caduceus agent start demo` to reset.
+- **Expected**: agent auto-recovers to running/healthy. **Result: PASS** — recovered in ~50 s (`supervisor: restarted agent demo (attempt 1)`).
 
 ## Cleanup
 ```bash
