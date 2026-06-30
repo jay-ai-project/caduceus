@@ -139,5 +139,6 @@ class GatewayService:
                 await asyncio.gather(c.serve(), a.serve())
             finally:
                 await services.supervisor.stop()
+                await services.chat_service.close_all()  # tear down pooled acp processes
 
         asyncio.run(_run())

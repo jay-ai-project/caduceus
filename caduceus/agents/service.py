@@ -33,6 +33,7 @@ class AgentService:
         aigateway_url: str,
         image_tag: str = "caduceus/hermes:0.17.0",
         model_alias: str = "default",
+        transport_closer=None,
     ):
         self.registry = registry
         self.provisioner = provisioner
@@ -41,6 +42,10 @@ class AgentService:
         self.aigateway_url = aigateway_url
         self.image_tag = image_tag
         self.model_alias = model_alias
+        # Called with the agent name on stop/remove so a pooled (reused) chat
+        # transport is torn down — its `hermes acp` process would otherwise
+        # outlive the sandbox it was bound to.
+        self._transport_closer = transport_closer
 
     # ---- create (local, saga) ---------------------------------------
     async def create(self, name: str) -> AgentRecord:
@@ -65,7 +70,8 @@ class AgentService:
             now = _now()
             rec = AgentRecord(
                 name=name, kind=AgentKind.local, token=token,
-                sandbox_name=sb, model_alias=self.model_alias, lifecycle=Lifecycle.running,
+                sandbox_name=sb, workspace_path=self.provisioner.workspace_for(sb),
+                model_alias=self.model_alias, lifecycle=Lifecycle.running,
                 created_at=now, updated_at=now,
             )
             await self.registry.upsert(rec)
@@ -125,6 +131,7 @@ class AgentService:
         rec = self.registry.get(name)
         if rec is None:
             raise invalid_request_error(f"no such agent '{name}'")
+        await self._close_transport(name)
         if rec.kind == AgentKind.local and rec.sandbox_name:
             await self._safe_remove(rec.sandbox_name)
         await self.registry.delete(name)
@@ -133,6 +140,7 @@ class AgentService:
     async def stop(self, name: str) -> AgentRecord:
         rec = self._require(name)
         self._reject_remote_lifecycle(rec)
+        await self._close_transport(name)
         await self.provisioner.stop(rec.sandbox_name)
         return await self._set_lifecycle(rec, Lifecycle.stopped)
 
@@ -165,3 +173,11 @@ class AgentService:
             await self.provisioner.remove(sandbox)
         except Exception as exc:  # noqa: BLE001 — best-effort compensation
             log.warning("compensation: failed to remove sandbox %s: %s", sandbox, exc)
+
+    async def _close_transport(self, name: str) -> None:
+        if self._transport_closer is None:
+            return
+        try:
+            await self._transport_closer(name)
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            log.debug("transport close for %s failed: %s", name, exc)

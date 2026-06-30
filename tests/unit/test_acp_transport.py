@@ -121,6 +121,24 @@ async def test_open_initializes_and_creates_session():
     await t.close()
 
 
+async def test_session_cwd_is_workspace_path():
+    proc = FakeAcpProcess()
+    t = _transport(proc, rec=_local_rec(workspace_path="/ws/cad-a1"))
+    await t.open()
+    new_req = next(m for m in proc.received if m.get("method") == "session/new")
+    assert new_req["params"]["cwd"] == "/ws/cad-a1"
+    await t.close()
+
+
+async def test_session_cwd_falls_back_to_root():
+    proc = FakeAcpProcess()
+    t = _transport(proc, rec=_local_rec())  # no workspace_path
+    await t.open()
+    new_req = next(m for m in proc.received if m.get("method") == "session/new")
+    assert new_req["params"]["cwd"] == "/root"
+    await t.close()
+
+
 async def test_prompt_streams_tokens_then_done():
     t = _transport(FakeAcpProcess(prompt_updates=[("Hello ",), ("world",)]))
     evs = await _collect(t)

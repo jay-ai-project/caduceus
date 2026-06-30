@@ -29,6 +29,9 @@ class FakeProvisioner:
         if self.fail_on == method:
             raise RuntimeError(f"fake failure in {method}")
 
+    def workspace_for(self, sandbox: str) -> str:
+        return f"/ws/{sandbox}"
+
     async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None:
         self._maybe_fail("create_sandbox")
         self.sandboxes[sandbox] = "running"

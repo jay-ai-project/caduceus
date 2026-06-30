@@ -27,6 +27,7 @@ HERMES_CONFIG_PATH = "/root/.hermes/config.yaml"
 
 
 class Provisioner(Protocol):
+    def workspace_for(self, sandbox: str) -> str: ...
     async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None: ...
     async def write_file(self, sandbox: str, path: str, content: str) -> None: ...
     async def stop(self, sandbox: str) -> None: ...
@@ -68,8 +69,12 @@ class SbxProvisioner:
             raise upstream_error(f"sbx {args[0]} failed (rc={rc}): {err.decode('utf-8', 'replace')[:300]}")
         return out
 
+    def workspace_for(self, sandbox: str) -> str:
+        """Host path bind-mounted into the sandbox (mounted at the same path inside)."""
+        return str(self._workspace_root / sandbox / "workspace")
+
     async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None:
-        workspace = self._workspace_root / sandbox / "workspace"
+        workspace = Path(self.workspace_for(sandbox))
         workspace.mkdir(parents=True, exist_ok=True)
         await self._check("create", "shell", str(workspace), "-t", image, "--name", sandbox, "-q", timeout=300.0)
         # Apply env inside the sandbox (kept out of argv where possible via the agent config/env file).

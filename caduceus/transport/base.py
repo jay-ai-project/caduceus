@@ -54,6 +54,12 @@ class Transport(ABC):
     async def health(self) -> HealthStatus:
         """Protocol-level liveness only — never spends an LLM completion (Q5/BR-C11)."""
 
+    async def is_alive(self) -> bool:
+        """Cheap check for transport reuse: is this transport still usable?
+        Overridden by transports backed by a process/socket that can die while
+        `state` still reads `open`."""
+        return self.state == TransportState.open
+
     # ---- streaming ---------------------------------------------------
     @abstractmethod
     def _raw_stream(self, session_id: Optional[str], message: str) -> AsyncIterator[ChatEvent]:

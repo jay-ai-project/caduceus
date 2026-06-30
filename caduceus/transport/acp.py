@@ -97,6 +97,11 @@ class AcpTransport(Transport):
             await self._kill()
             raise
 
+    def _cwd(self) -> str:
+        # The agent's working dir = its bind-mounted host workspace, so files it
+        # writes there are host-visible and persist (Build & Test 2026-06-30).
+        return self.rec.workspace_path or "/root"
+
     async def _initialize(self) -> None:
         await self._rpc("initialize", {
             "protocolVersion": ACP_PROTOCOL_VERSION,
@@ -106,7 +111,7 @@ class AcpTransport(Transport):
         if self.rec.session_id:
             sid = await self._try_load(self.rec.session_id)
         if sid is None:
-            res = await self._rpc("session/new", {"cwd": "/root", "mcpServers": []})
+            res = await self._rpc("session/new", {"cwd": self._cwd(), "mcpServers": []})
             sid = res.get("sessionId")
         self.session_id = sid
         self._initialized = True
@@ -114,7 +119,7 @@ class AcpTransport(Transport):
     async def _try_load(self, session_id: str) -> Optional[str]:
         """Resume an existing session (Q1); None if the agent can't load it."""
         try:
-            await self._rpc("session/load", {"sessionId": session_id, "cwd": "/root", "mcpServers": []})
+            await self._rpc("session/load", {"sessionId": session_id, "cwd": self._cwd(), "mcpServers": []})
             return session_id
         except Exception as exc:  # noqa: BLE001 — stale session → transparent recreate
             log.info("acp: session/load failed (%s); creating a new session", exc)
@@ -144,8 +149,20 @@ class AcpTransport(Transport):
         if self.state != TransportState.open or self._proc is None:
             await self.open()
 
+    async def is_alive(self) -> bool:
+        return (self.state == TransportState.open and self._proc is not None
+                and self._proc.returncode is None)
+
     # ---- streaming ---------------------------------------------------
     async def _raw_stream(self, session_id: Optional[str], message: str) -> AsyncIterator[ChatEvent]:
+        try:
+            async for ev in self._prompt(session_id, message):
+                yield ev
+        finally:
+            # reset the per-turn cancel flag so a reused transport starts clean
+            self._cancelled = False
+
+    async def _prompt(self, session_id: Optional[str], message: str) -> AsyncIterator[ChatEvent]:
         await self._ensure_open()
         rid = self._next()
         await self._send({"jsonrpc": "2.0", "id": rid, "method": "session/prompt",

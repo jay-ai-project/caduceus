@@ -17,10 +17,10 @@ complete._
 ## Test Execution Summary
 
 ### Unit Tests (`tests/unit` + `tests/pbt`)
-- **Total Tests**: **141**
-- **Passed**: **141**
+- **Total Tests**: **146**
+- **Passed**: **146**
 - **Failed**: **0**
-- **Breakdown**: 118 deterministic unit + 23 property-based (Hypothesis)
+- **Breakdown**: 123 deterministic unit + 23 property-based (Hypothesis)
   - includes 9 new `AcpTransport` tests (protocol mapping, session resume/recreate, auto-approve permission, cooperative cancel, health) driving a fake `hermes acp` process.
   - PBT: aigateway 6 · registry 4 (stateful) · transport 4 (incl. stateful Supervisor) · u4 9
 - **Coverage stance**: real protocol/IO seams (daemon serve/fork, real Control-API HTTP client, real `sbx`/`hermes acp`) are exercised in integration (all PASS), not the unit suite.
@@ -67,7 +67,20 @@ speaks raw newline JSON-RPC (no new caduceus dependency).
 Also hardened: the post-create health probe is now best-effort (a probe error no
 longer rolls back a successfully-provisioned agent).
 
-- **Status**: ✅ **All 6 scenarios PASS** (control plane + agent data plane).
+**Post-integration improvements (from usage feedback):**
+- **Per-turn latency / probe noise** — `ChatService` now **reuses one `hermes acp`
+  process per agent** across turns (pooled transport, per-agent serialized,
+  evicted on stop/remove/broken/shutdown) instead of spawning per turn. hermes'
+  cold-start + provider/model probing (the repeated `/api/tags`, `/props`,
+  `/v1/models/default` 404s) is paid once, not every turn. Measured: cold turn
+  ~13 s → warm turn ~8 s. (Idle reaping of pooled processes is a future nicety.)
+- **Agent file outputs** — the ACP session `cwd` is now the agent's bind-mounted
+  host workspace (`AgentRecord.workspace_path`), so files the agent writes land in
+  `~/.caduceus/agents/<sandbox>/workspace/` on the host and persist (verified:
+  agent-written `hello.txt` appeared on the host). (sbx mounts at the same path
+  as host and can't remap onto `/root`, which would also shadow `~/.hermes`.)
+
+- **Status**: ✅ **All 6 scenarios PASS** (control plane + agent data plane); +2 usage-driven improvements verified live.
 
 ### Performance Tests
 - **Response Time / Throughput / Error Rate**: no SLAs (personal local tool; R1=A). Lightweight streaming-passthrough TTFB, timeout, and memory-stability smoke checks documented.
@@ -89,7 +102,7 @@ longer rolls back a successfully-provisioned agent).
 
 ## Overall Status
 - **Build**: ✅ Success
-- **Automated Tests**: ✅ Pass (141/141 unit + PBT).
+- **Automated Tests**: ✅ Pass (146/146 unit + PBT).
 - **Integration**: ✅ **All 6 scenarios PASS** live (control plane + agent data plane: provision → chat → supervise). 10 defects found and fixed, incl. an approved transport pivot to `hermes acp` (stdio).
 - **Ready for Operations**: **Yes** — full local-agent lifecycle works end-to-end on the host; automated suite green; build reproducible (image auto-loaded into sbx).
 

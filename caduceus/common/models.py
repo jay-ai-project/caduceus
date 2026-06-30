@@ -66,6 +66,9 @@ class AgentRecord:
     token: str  # bearer for the caduceus AI-Gateway
     endpoint: Optional[str] = None
     sandbox_name: Optional[str] = None
+    #: host path bind-mounted into the sandbox (same path inside) — the agent's
+    #: working dir, so files it writes there are host-visible & persist.
+    workspace_path: Optional[str] = None
     serve_port: Optional[int] = None
     serve_auth: Optional[str] = None  # credential for the agent's `hermes serve`
     model_alias: str = "default"
@@ -82,6 +85,7 @@ class AgentRecord:
             "token": self.token,
             "endpoint": self.endpoint,
             "sandbox_name": self.sandbox_name,
+            "workspace_path": self.workspace_path,
             "serve_port": self.serve_port,
             "serve_auth": self.serve_auth,
             "model_alias": self.model_alias,
@@ -101,6 +105,7 @@ class AgentRecord:
             token=d["token"],
             endpoint=d.get("endpoint"),
             sandbox_name=d.get("sandbox_name"),
+            workspace_path=d.get("workspace_path"),
             serve_port=d.get("serve_port"),
             serve_auth=d.get("serve_auth"),
             model_alias=d.get("model_alias", "default"),

@@ -80,7 +80,8 @@ async def test_happy_relays_and_persists_new_session():
     out = await _collect(cs.chat_stream("a1", "hi"))
     assert [e.data for e in out if e.type == ChatEventType.token] == ["he", "llo"]
     assert reg.sessions_set == [("a1", "sess-1")]
-    assert ft.closed is True
+    # pooled: the transport is kept open (warm) for reuse, not closed each turn
+    assert ft.opened is True and ft.closed is False
 
 
 async def test_resume_existing_session_not_repersisted():
@@ -110,6 +111,56 @@ async def test_open_failure_is_fail_fast():
     out = await _collect(cs.chat_stream("a1", "hi"))
     assert [e.type for e in out] == [ChatEventType.error]
     assert out[0].code == "agent_unavailable"
+
+
+async def test_pooled_transport_reused_across_turns():
+    rec = make_agent(session_id="s1")
+    created: list[FakeTransport] = []
+
+    def factory(r):
+        ft = FakeTransport(r, script=[ChatEvent.token_("x"), ChatEvent.done_()])
+        created.append(ft)
+        return ft
+
+    cs = ChatService(FakeRegistry([rec]), health_check=_healthy, transport_factory=factory)
+    await _collect(cs.chat_stream("a1", "hi"))
+    await _collect(cs.chat_stream("a1", "again"))
+    assert len(created) == 1            # same transport reused across turns
+    assert created[0].closed is False   # kept warm
+
+
+async def test_close_agent_evicts_and_next_turn_respawns():
+    rec = make_agent()
+    created: list[FakeTransport] = []
+
+    def factory(r):
+        ft = FakeTransport(r)
+        created.append(ft)
+        return ft
+
+    cs = ChatService(FakeRegistry([rec]), health_check=_healthy, transport_factory=factory)
+    await _collect(cs.chat_stream("a1", "hi"))
+    await cs.close_agent("a1")
+    assert created[0].closed is True
+    await _collect(cs.chat_stream("a1", "hi"))
+    assert len(created) == 2            # respawned after eviction
+
+
+async def test_broken_transport_is_evicted_and_respawned():
+    rec = make_agent()
+    created: list[FakeTransport] = []
+
+    def factory(r):
+        ft = FakeTransport(r, script=[ChatEvent.error_("boom", code="transport_broken")])
+        created.append(ft)
+        return ft
+
+    cs = ChatService(FakeRegistry([rec]), health_check=_healthy, transport_factory=factory)
+    out = await _collect(cs.chat_stream("a1", "hi"))
+    assert out[-1].type == ChatEventType.error
+    assert created[0].closed is True   # broken transport evicted
+    await _collect(cs.chat_stream("a1", "hi"))
+    assert len(created) == 2           # respawned
 
 
 async def test_cooperative_cancel_preserves_session():

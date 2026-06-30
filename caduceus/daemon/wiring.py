@@ -114,14 +114,18 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
     )
     health_checker = HealthChecker(probes)
 
-    agent_service = AgentService(registry, provisioner, images, health_checker, aigateway_url=aigateway_url)
-
     # U3 chat + supervisor (injected callables)
     from caduceus.transport.chat import ChatService
     from caduceus.transport.supervisor import Supervisor
 
     chat_service = ChatService(registry, health_check=health_checker.check,
                                transport_factory=Transport.for_agent)
+
+    # AgentService tears down a pooled chat transport on stop/remove (the agent's
+    # `hermes acp` process must not outlive its sandbox).
+    agent_service = AgentService(registry, provisioner, images, health_checker,
+                                 aigateway_url=aigateway_url,
+                                 transport_closer=chat_service.close_agent)
 
     async def _restart(rec: AgentRecord) -> None:
         # ACP transport: there is no serve process/port — "restart" means ensure
