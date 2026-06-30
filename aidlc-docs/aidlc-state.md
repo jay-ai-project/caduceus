@@ -98,12 +98,17 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - **Code**: `caduceus/common/dto.py` + `caduceus/common/settings.py`(extended) + `caduceus/config/{editor,service}.py` + `caduceus/daemon/{lock,wiring,control_api,gateway}.py` + `caduceus/cli/{client,render,app}.py` + `caduceus/__main__.py` + pyproject(+typer, console script `caduceus`). **132/132 tests pass** (U1 31 + U2 24 + U3 26 + U4 51). Console script verified. Daemon serve/fork + real ControlAPIClient/sandbox-config-codec unit-untested by design → Build & Test.
   - FD decisions: Q1=foreground default + `-d` daemonize (single-instance pid/lock); **Q2=B hot-reload default + per-change-kind `ReloadStrategy` seam (CHANGE_KIND_STRATEGY) for future selective restart**; Q3=A interactive config bootstrap + `~/.caduceus/config.toml`; Q4=A apply→read-back+health verify; Q5=B `--soul`/`--soul-file` both (reject if both set); Q6=A human default + `--json` + exit codes 0/2/1.
   - Artifacts: domain-entities.md, business-logic-model.md (L1-L6 incl. composition-root wiring of U1/U2/U3; 6 PBT-01 props), business-rules.md (BR-G/E/L/O/W). U4 wires injected U3 callables + U1 token_lookup.
-- [ ] Build and Test (after all units)
+- [x] **Build and Test** ✅ COMPLETE & APPROVED (after all units)
+  - **Build**: ✅ editable install + wheel (`dist/caduceus-0.1.0-py3-none-any.whl`) build OK; console script `caduceus` verified; all 43 modules import OK.
+  - **Tests**: ✅ **132/132 pass** (109 unit + 23 PBT) on CPython 3.12.3, `.venv`.
+  - **Integration**: 6 scenarios documented (host-dependent: Docker+sbx+hermes+upstream) — manual smoke, not auto-run in v1.
+  - **Performance**: N/A as gate (personal local tool); lightweight streaming-TTFB/timeout/memory smoke documented.
+  - Artifacts: build-instructions.md, unit-test-instructions.md, integration-test-instructions.md, performance-test-instructions.md, build-and-test-summary.md.
 
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION
-- **Current Stage**: CONSTRUCTION — U4 Code Generation complete (U4 fully done; awaiting approval). **All 4 units complete.**
-- **Next Stage**: Build & Test (final CONSTRUCTION stage, after U4 approval)
+- **Lifecycle Phase**: OPERATIONS (placeholder)
+- **Current Stage**: CONSTRUCTION fully complete & approved (all 4 units + Build & Test). OPERATIONS is a workflow placeholder — no active stages in v1.
+- **Next Stage**: — (Operations: future deployment/monitoring/incident-response expansion)
 - **U3 Transport & Chat**: ✅ COMPLETE & COMMITTED (design f244457, code d5e488b)
 - **U1 AI-Gateway**: ✅ COMPLETE (committed 8f25e5d)
 - **U2 Registry & Provisioner**: ✅ COMPLETE & APPROVED (committed a9439df)
