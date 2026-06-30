@@ -81,6 +81,14 @@ longer rolls back a successfully-provisioned agent).
   sandbox = liveness; real failures surface on chat). Verified: 0 probes / 0
   gateway requests over 75 s idle with a running agent, while supervisor
   auto-restart still recovers a stopped sandbox (~40 s).
+- **Remaining probe-log noise** — the in-sandbox hermes agent still probes its
+  custom endpoint to auto-detect the backend (Ollama/LM Studio/llama.cpp/OpenAI)
+  and model context length on each acp-process spawn and every ~5 min (its
+  metadata cache TTL); these `/api/tags`, `/api/show`, `/props`, `/version`,
+  `/v1/models/default`, `/api/v1/models` requests 404 harmlessly. A
+  `ProbeAccessLogFilter` on `uvicorn.access` (`daemon/gateway.py`) drops just
+  those probe-404 lines; `/v1/models` (200) and `/v1/chat/completions` stay
+  visible. Verified: 0 probe-404 log lines, useful calls retained.
 - **Agent file outputs** — the ACP session `cwd` is now the agent's bind-mounted
   host workspace (`AgentRecord.workspace_path`), so files the agent writes land in
   `~/.caduceus/agents/<sandbox>/workspace/` on the host and persist (verified:

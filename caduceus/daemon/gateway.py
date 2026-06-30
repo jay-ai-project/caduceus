@@ -9,6 +9,7 @@ parts (config bootstrap, `build_apps`, `status`) are unit-testable.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -23,6 +24,39 @@ from caduceus.daemon.lock import AlreadyRunning, InstanceLock
 from caduceus.daemon.wiring import Services, build_services
 
 log = get_logger("caduceus.daemon.gateway")
+
+#: Paths the in-sandbox hermes agent probes to auto-detect the backend behind its
+#: custom LLM endpoint (Ollama `/api/tags`+`/api/show`, LM Studio `/api/v1/models`,
+#: llama.cpp `/props`+`/version`+`/v1/props`, OpenAI `/v1/models/default`). The
+#: AI-Gateway only implements `/v1/models` + `/v1/chat/completions`, so these 404
+#: harmlessly — just noise in the uvicorn access log. (`/v1/models` is NOT here:
+#: it returns 200 and is the one probe that matters.)
+PROBE_NOISE_PATHS = frozenset({
+    "/api/show", "/api/tags", "/api/v1/models",
+    "/props", "/v1/props", "/version", "/v1/models/default",
+})
+
+
+class ProbeAccessLogFilter(logging.Filter):
+    """Drop `uvicorn.access` records for hermes' backend-probe 404s (see above)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        args = record.args
+        if not isinstance(args, tuple) or len(args) < 5:
+            return True
+        try:
+            path = str(args[2]).split("?", 1)[0]
+            status = int(args[4])
+        except (ValueError, TypeError, IndexError):
+            return True
+        return not (path in PROBE_NOISE_PATHS and status == 404)
+
+
+def install_access_log_filter() -> None:
+    """Attach the probe-noise filter to uvicorn's access logger (idempotent)."""
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, ProbeAccessLogFilter) for f in access.filters):
+        access.addFilter(ProbeAccessLogFilter())
 
 
 def build_apps(services: Services):
@@ -128,6 +162,7 @@ class GatewayService:
 
         import uvicorn
 
+        install_access_log_filter()  # silence hermes backend-probe 404 noise
         c_host, c_port = self.settings.control_bind.rsplit(":", 1)
         a_host, a_port = self.settings.aigateway_bind.rsplit(":", 1)
         c = uvicorn.Server(uvicorn.Config(control_app, host=c_host, port=int(c_port), log_level="info"))
