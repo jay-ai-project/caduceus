@@ -20,8 +20,8 @@ complete._
 - **Total Tests**: **154**
 - **Passed**: **154**
 - **Failed**: **0**
-- **Breakdown**: 123 deterministic unit + 23 property-based (Hypothesis)
-  - includes 9 new `AcpTransport` tests (protocol mapping, session resume/recreate, auto-approve permission, cooperative cancel, health) driving a fake `hermes acp` process.
+- **Breakdown**: 131 deterministic unit + 23 property-based (Hypothesis)
+  - includes 11 `AcpTransport` tests (protocol mapping, session resume/recreate, cwd→workspace, auto-approve permission, cooperative cancel, health), pooled-transport reuse/eviction tests, access-log-filter tests, and `agent create` progress-streaming tests.
   - PBT: aigateway 6 · registry 4 (stateful) · transport 4 (incl. stateful Supervisor) · u4 9
 - **Coverage stance**: real protocol/IO seams (daemon serve/fork, real Control-API HTTP client, real `sbx`/`hermes acp`) are exercised in integration (all PASS), not the unit suite.
 - **Status**: ✅ **Pass**
