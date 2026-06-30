@@ -14,7 +14,14 @@ from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from caduceus.common.dto import AgentView, ConfigChange, CreateSpec, GatewayStatus, RegisterSpec
+from caduceus.common.dto import (
+    AgentView,
+    ConfigChange,
+    CreateSpec,
+    GatewayConfigChange,
+    GatewayStatus,
+    RegisterSpec,
+)
 from caduceus.common.errors import ProxyError
 from caduceus.common.models import AgentKind
 from caduceus.config.editor import ReadOnlyError
@@ -158,6 +165,22 @@ def build_control_app(services, status_provider=None) -> FastAPI:
             return _err(ProxyError(404, "invalid_request_error", f"no such agent '{name}'"))
         turns = await chat.history(name)
         return {"turns": [t.to_dict() for t in turns]}
+
+    @app.get("/gateway/config")
+    async def get_gateway_config():
+        # Live effective upstream/model the running gateway is serving with (BR-GC5/GC8).
+        return services.gateway_config_service.view().to_dict()
+
+    @app.post("/gateway/config")
+    async def set_gateway_config(request: Request):
+        try:
+            change = GatewayConfigChange.from_dict(await request.json())
+            return services.gateway_config_service.apply(change).to_dict()
+        except ValueError as exc:  # validation (BR-GC2/GC3) → usage error
+            return JSONResponse(
+                {"error": {"message": str(exc), "type": "invalid_request_error"}}, status_code=400)
+        except Exception as exc:  # noqa: BLE001
+            return _err(exc)
 
     @app.get("/agents/{name}/config")
     async def get_config(name: str):

@@ -167,10 +167,24 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - Rules BR-GC1..GC11; PBT-GC1..GC3 (URL validation totality, config round-trip + key preservation, change idempotence).
   - Artifacts: construction/u6-gateway-config/functional-design/{domain-entities,business-logic-model,business-rules}.md
 
+- [x] **U6 Functional Design** (light) — **APPROVED** (committed aaeb140)
+- [x] **U6 Code Generation** — **APPROVED**; Part 2 (Generation) complete.
+  - Plan (all 10 steps [x]): construction/plans/u6-gateway-config-code-generation-plan.md.
+  - Created: `caduceus/config/gateway_config.py` (validate + atomic key-preserving store + GatewayConfigService) + 4 test files.
+  - Modified: common/dto.py, daemon/wiring.py, daemon/control_api.py, cli/{client,app,render}.py, tests/fakes.py, README.md.
+  - Artifacts: construction/u6-gateway-config/code/code-summary.md.
+- [x] **U6 Build & Test** — complete & **APPROVED** — U6 cycle ✅ COMPLETE
+  - Build ✅ (editable install + entrypoint + import + wheel; no new runtime dep). Tests ✅ **208/208** (was 174; +34).
+  - Live ✅ real `caduceus` entry point: **offline** path (file edit, exit codes, env-shadow warning) + **hot-apply** path
+    (running daemon: `--model` change visible on a fresh request with no restart; config.toml persisted; clean shutdown).
+  - Config routes loopback-only, no Docker needed. Performance N/A (personal tool).
+  - Artifacts: construction/build-and-test/u6-gateway-config-build-and-test-summary.md.
+
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (U6 Gateway Config) — Functional Design complete pending approval.
-- **Current Stage**: CONSTRUCTION — U6 Functional Design (light) complete, awaiting approval.
-- **Next Stage**: CONSTRUCTION — U6 Code Generation after approval.
+- **Lifecycle Phase**: CONSTRUCTION (U6 Gateway Config) — ✅ COMPLETE & APPROVED.
+- **Current Stage**: — (Operations placeholder).
+- **Next Stage**: —
+- **U6 Gateway Config**: ✅ COMPLETE & APPROVED — Requirements + Plan + FD + CodeGen + Build & Test all approved. 208/208; live offline + hot-apply verified.
 - (prior) U5 Gateway Web UI: 🟢 COMPLETE (committed); U1–U4 + Build & Test: ✅ COMPLETE & APPROVED.
 - **U5 Gateway Web UI**: 🟢 COMPLETE pending gate — Requirements + Plan + FD + CodeGen approved; Build & Test done. 174/174 tests; live verified.
 - (prior) all 4 units + Build & Test: ✅ COMPLETE & APPROVED.

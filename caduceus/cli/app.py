@@ -233,6 +233,61 @@ def gateway_status(json_out: bool = typer.Option(False, "--json")):
     render.render_status(get_gateway().status(), json_out)
 
 
+#: Same location the daemon reads/writes (GatewayService default state dir).
+def _config_path():
+    from pathlib import Path
+
+    return Path("~/.caduceus/config.toml").expanduser()
+
+
+@gateway_app.command("config")
+def gateway_config(
+    get: bool = typer.Option(False, "--get", help="show current settings (default when no --set flags)"),
+    json_out: bool = typer.Option(False, "--json"),
+    upstream_url: Optional[str] = typer.Option(None, "--upstream-url", help="set upstream LLM base URL"),
+    model: Optional[str] = typer.Option(None, "--model", help="set default model"),
+):
+    """View or change the gateway's `upstream_base_url` / `default_model`.
+
+    Applies live when the daemon is running (no restart); otherwise edits
+    `~/.caduceus/config.toml` directly (effective on next `gateway start`).
+    """
+    from caduceus.common.dto import GatewayConfigChange
+    from caduceus.common.settings import Settings
+    from caduceus.config import gateway_config as gwc
+
+    client = get_client()
+    up = client.is_daemon_up()
+    is_set = upstream_url is not None or model is not None
+
+    # ---- view (no set flags, or explicit --get) ----
+    if not is_set:
+        if up:
+            _run(lambda: render.render_gateway_config(client.get_gateway_config(), json_out))
+        else:
+            settings = Settings.from_env_and_file(_config_path())
+            render.render_gateway_config(gwc.view_from_settings(settings, source="file"), json_out)
+        return
+
+    # ---- set ----
+    change = GatewayConfigChange(upstream_base_url=upstream_url, default_model=model)
+    try:
+        gwc.validate_change(change)
+    except ValueError as exc:
+        render.error(str(exc))
+        raise typer.Exit(EXIT_USAGE)
+
+    if up:
+        _run(lambda: render.render_gateway_config_applied(
+            client.set_gateway_config(change), change, live=True, as_json=json_out))
+    else:
+        path = _config_path()
+        gwc.apply_to_toml(path, change)
+        settings = Settings.from_env_and_file(path)
+        render.render_gateway_config_applied(
+            gwc.view_from_settings(settings, source="file"), change, live=False, as_json=json_out)
+
+
 def main() -> None:
     app()
 

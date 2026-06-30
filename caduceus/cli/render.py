@@ -64,6 +64,48 @@ def render_status(gs, as_json: bool) -> None:
     emit(f"  version     : {gs.version}")
 
 
+def _gateway_env_warnings(view, change=None) -> None:
+    """Warn (stderr) when an env var shadows config.toml on restart (BR-GC7)."""
+    from caduceus.config.gateway_config import ENV_KEYS
+
+    touched = None
+    if change is not None:
+        touched = set()
+        if change.upstream_base_url is not None:
+            touched.add("upstream_base_url")
+        if change.default_model is not None:
+            touched.add("default_model")
+    for key in view.env_override:
+        if touched is None or key in touched:
+            error(f"warning: ${ENV_KEYS.get(key, key)} is set and overrides config.toml on (re)start")
+
+
+def render_gateway_config(view, as_json: bool) -> None:
+    if as_json:
+        emit_json(view.to_dict())
+        return
+    emit(f"upstream_base_url : {view.upstream_base_url or '(not set)'}")
+    emit(f"default_model     : {view.default_model or '(not set)'}")
+    emit(f"configured        : {'yes' if view.upstream_configured else 'no'}")
+    emit(f"source            : {view.source}")
+    _gateway_env_warnings(view)
+
+
+def render_gateway_config_applied(view, change, *, live: bool, as_json: bool) -> None:
+    if as_json:
+        emit_json(view.to_dict())
+        return
+    changed = []
+    if change.upstream_base_url is not None:
+        changed.append(f"upstream_base_url={view.upstream_base_url}")
+    if change.default_model is not None:
+        changed.append(f"default_model={view.default_model}")
+    where = ("applied live (no restart)" if live
+             else "persisted to config.toml — effective on next `gateway start`")
+    emit(f"updated {', '.join(changed)} — {where}")
+    _gateway_env_warnings(view, change)
+
+
 def render_config(snapshot, as_json: bool) -> None:
     if as_json:
         emit_json(snapshot.to_dict())

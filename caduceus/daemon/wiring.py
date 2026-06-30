@@ -41,6 +41,7 @@ class Services:
     agent_service: AgentService
     chat_service: "object"
     config_service: ConfigService
+    gateway_config_service: "object"
     supervisor: "object"
     aigateway_app: "object"
     advertise_host: str
@@ -169,6 +170,13 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
     )
     config_service = ConfigService(registry, config_editor)
 
+    # U6 gateway upstream config: view + persist (config.toml) + live hot-apply.
+    # Shares the exact `settings` object the AI-Gateway reads, so `apply` takes
+    # effect without a restart (BR-GC5).
+    from caduceus.config.gateway_config import GatewayConfigService
+
+    gateway_config_service = GatewayConfigService(settings, config_path=sd / "config.toml")
+
     # U1 AI-Gateway app, token_lookup bound to the Registry (BR-W1)
     from caduceus.aigateway.app import build_aigateway_app
     from caduceus.aigateway.upstream import UpstreamClient
@@ -178,8 +186,8 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
     return Services(
         settings=settings, registry=registry, provisioner=provisioner,
         agent_service=agent_service, chat_service=chat_service,
-        config_service=config_service, supervisor=supervisor,
-        aigateway_app=aigateway_app, advertise_host=advertise,
+        config_service=config_service, gateway_config_service=gateway_config_service,
+        supervisor=supervisor, aigateway_app=aigateway_app, advertise_host=advertise,
     )
 
 

@@ -119,6 +119,8 @@ It is served **loopback-only with no authentication** — intended as a personal
 caduceus gateway start [-d]          Start the daemon (foreground, or -d to detach)
 caduceus gateway stop                Signal the daemon to stop
 caduceus gateway status [--json]     Show daemon status
+caduceus gateway config [--get] [--upstream-url URL] [--model NAME] [--json]
+                                     View / change upstream_base_url + default_model
 
 caduceus agent create <name> [--model M] [--upstream-url U] [--image I] [--json]
                                      Provision a local sandboxed agent (live progress)
@@ -148,6 +150,18 @@ aigateway_bind    = "0.0.0.0:9701"                # agents reach this over the D
 ```
 
 `upstream_base_url` and `default_model` are **required**; the daemon prompts for them if unset.
+
+Change them later with `caduceus gateway config`:
+
+```bash
+caduceus gateway config                                   # show current values
+caduceus gateway config --upstream-url http://localhost:11434/v1 --model llama3
+```
+
+When the daemon is **running**, a change is applied **live** (no restart) and saved to
+`config.toml`; when it is stopped, the file is edited directly and takes effect on the next
+`gateway start`. (If `CADUCEUS_UPSTREAM_BASE_URL` / `CADUCEUS_DEFAULT_MODEL` are set in the
+environment, they override `config.toml` on restart — the command warns when this applies.)
 All values can also be supplied via `CADUCEUS_*` environment variables (e.g. `CADUCEUS_CONTROL_BIND`).
 
 ## How it works

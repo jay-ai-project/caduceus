@@ -266,6 +266,7 @@ from caduceus.common.dto import (  # noqa: E402
     AgentView,
     ConfigResult,
     ConfigSnapshot,
+    GatewayConfigView,
     GatewayStatus,
 )
 
@@ -335,7 +336,11 @@ class FakeConfigService:
         return self.result
 
 
-def build_fake_services(agents=None, chat_script=None, config_service=None):
+def build_fake_services(agents=None, chat_script=None, config_service=None,
+                        gateway_config_service=None):
+    from caduceus.common.settings import Settings
+    from caduceus.config.gateway_config import GatewayConfigService
+
     reg = FakeRegistry(agents or [])
     return SimpleNamespace(
         settings=SimpleNamespace(control_bind="127.0.0.1:9700", aigateway_bind="172.17.0.1:9701"),
@@ -343,6 +348,9 @@ def build_fake_services(agents=None, chat_script=None, config_service=None):
         agent_service=FakeAgentService(agents or []),
         chat_service=FakeChatService(chat_script),
         config_service=config_service or FakeConfigService(),
+        gateway_config_service=gateway_config_service or GatewayConfigService(
+            Settings(upstream_base_url="http://up:11434/v1", default_model="m"),
+            config_path="/nonexistent/config.toml"),
         provisioner=FakeProvisioner(),
     )
 
@@ -351,13 +359,19 @@ class FakeControlAPIClient:
     """Mirrors ControlAPIClient's surface for CLI tests (no HTTP)."""
 
     def __init__(self, *, up=True, agents=None, chat_script=None,
-                 snapshot=None, result=None, raise_error=None, status=None):
+                 snapshot=None, result=None, raise_error=None, status=None,
+                 gateway_config=None, gateway_config_applied=None):
         self.up = up
         self._agents = list(agents or [])
         self._chat = chat_script if chat_script is not None else [ChatEvent.token_("hello"), ChatEvent.done_()]
         self._snapshot = snapshot or ConfigSnapshot(skills=["s1"])
         self._result = result or ConfigResult(applied=["+skills ['s1']"], verified=True)
         self._raise = raise_error
+        self._gw_config = gateway_config or GatewayConfigView(
+            upstream_base_url="http://up:11434/v1", default_model="m",
+            upstream_configured=True, source="live")
+        self._gw_applied = gateway_config_applied
+        self.set_gateway_calls = []
         self._status = status or GatewayStatus(running=True, pid=123, control_listener="127.0.0.1:9700",
                                                aigateway_listener="172.17.0.1:9701", agent_count=len(agents or []),
                                                version="0.1.0")
@@ -400,6 +414,20 @@ class FakeControlAPIClient:
         if self._raise:
             raise self._raise
         return self._result
+
+    def get_gateway_config(self):
+        return self._gw_config
+
+    def set_gateway_config(self, change):
+        if self._raise:
+            raise self._raise
+        self.set_gateway_calls.append(change)
+        if self._gw_applied is not None:
+            return self._gw_applied
+        return GatewayConfigView(
+            upstream_base_url=change.upstream_base_url or self._gw_config.upstream_base_url,
+            default_model=change.default_model or self._gw_config.default_model,
+            upstream_configured=True, source="live")
 
     def chat(self, name, message):
         for ev in self._chat:

@@ -17,6 +17,8 @@ from caduceus.common.dto import (
     ConfigResult,
     ConfigSnapshot,
     CreateSpec,
+    GatewayConfigChange,
+    GatewayConfigView,
     GatewayStatus,
     RegisterSpec,
 )
@@ -99,6 +101,15 @@ class ControlAPIClient:
 
     def set_config(self, name: str, change: ConfigChange) -> ConfigResult:
         return ConfigResult.from_dict(self._json(self._c().put(f"/agents/{name}/config", json=change.to_dict())))
+
+    def get_gateway_config(self) -> GatewayConfigView:
+        return GatewayConfigView.from_dict(self._json(self._c().get("/gateway/config")))
+
+    def set_gateway_config(self, change: GatewayConfigChange) -> GatewayConfigView:
+        r = self._c().post("/gateway/config", json=change.to_dict())
+        if r.status_code == 400:  # validation error → usage exit code (BR-GC2/GC3)
+            raise ControlError(_err_message(r), exit_code=2)
+        return GatewayConfigView.from_dict(self._json(r))
 
     def chat(self, name: str, message: str) -> Iterator[ChatEvent]:
         with self._c().stream("POST", f"/agents/{name}/chat", json={"message": message}) as resp:
