@@ -28,6 +28,8 @@ dev = [
 caduceus = "caduceus.cli.app:main"
 
 [tool.hatch.build.targets.wheel]
+# `packages = ["caduceus"]` ships the whole package tree, including the Web UI
+# static assets under caduceus/webui/assets/ (NFR-W5 / BR-W2) — no extra config.
 packages = ["caduceus"]
 
 [tool.pytest.ini_options]

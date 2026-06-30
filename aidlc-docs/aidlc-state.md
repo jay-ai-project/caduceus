@@ -132,11 +132,18 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - Artifacts: construction/u5-webui/functional-design/{domain-entities,business-logic-model,business-rules,frontend-components}.md
   - PBT targets: PBT-W1 (terminal invariant under extended events), PBT-W2 (to_dict/from_dict round-trip w/ meta).
 
+- [x] **U5 Code Generation** — complete, **awaiting approval gate**
+  - Part 1 plan (14 steps) approved; Part 2 executed.
+  - Created: `caduceus/webui/{__init__,serve}.py` + `assets/{index.html,styles.css,app.js}`.
+  - Modified: `transport/events.py` (thinking/tool_call + meta + HistoryTurn), `transport/acp.py` (_map_update + load_history), `transport/base.py` (load_history no-op), `transport/chat.py` (history()), `daemon/control_api.py` (mount_webui + GET /agents/{name}/history), `pyproject.toml` (note), `README.md`. Tests across 5 files + fakes.
+  - **173 tests pass** (was 154; +19). Wheel build verified to include webui assets (force-include removed — `packages=["caduceus"]` already ships them).
+  - Artifacts: construction/u5-webui/code/code-summary.md; plan construction/plans/u5-webui-code-generation-plan.md (all [x]).
+
 ## Current Status
 - **Lifecycle Phase**: CONSTRUCTION (new cycle — U5 Web UI)
-- **Current Stage**: CONSTRUCTION — U5 Functional Design complete, awaiting approval.
-- **Next Stage**: Code Generation (U5)
-- **U5 Gateway Web UI**: 🔵 IN PROGRESS — Requirements + Plan approved; Functional Design awaiting gate.
+- **Current Stage**: CONSTRUCTION — U5 Code Generation complete, awaiting approval.
+- **Next Stage**: Build & Test (U5)
+- **U5 Gateway Web UI**: 🔵 IN PROGRESS — Requirements + Plan + Functional Design approved; Code Generation awaiting gate. 173/173 tests pass.
 - (prior) all 4 units + Build & Test: ✅ COMPLETE & APPROVED.
 - **U3 Transport & Chat**: ✅ COMPLETE & COMMITTED (design f244457, code d5e488b)
 - **U1 AI-Gateway**: ✅ COMPLETE (committed 8f25e5d)

@@ -18,6 +18,7 @@ from caduceus.common.dto import AgentView, ConfigChange, CreateSpec, GatewayStat
 from caduceus.common.errors import ProxyError
 from caduceus.common.models import AgentKind
 from caduceus.config.editor import ReadOnlyError
+from caduceus.webui import mount_webui
 
 VERSION = "0.1.0"
 
@@ -148,6 +149,15 @@ def build_control_app(services, status_provider=None) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    @app.get("/agents/{name}/history")
+    async def history(name: str):
+        # Best-effort prior-turn replay for the Web UI (FR-W10). Unknown agent →
+        # error; any load failure is swallowed by ChatService → empty turns.
+        if registry.get(name) is None:
+            return _err(ProxyError(404, "invalid_request_error", f"no such agent '{name}'"))
+        turns = await chat.history(name)
+        return {"turns": [t.to_dict() for t in turns]}
+
     @app.get("/agents/{name}/config")
     async def get_config(name: str):
         try:
@@ -177,6 +187,7 @@ def build_control_app(services, status_provider=None) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    mount_webui(app)  # FR-W1: serve the static SPA at /ui (+ `/` redirect)
     return app
 
 

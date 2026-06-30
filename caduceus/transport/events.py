@@ -17,10 +17,12 @@ from typing import Optional
 
 
 class ChatEventType(str, Enum):
-    token = "token"      # incremental output chunk
-    message = "message"  # a whole assistant message
-    error = "error"      # terminal failure (carries a machine `code`)
-    done = "done"        # terminal normal/cancel end (carries optional reason)
+    token = "token"        # incremental output chunk
+    message = "message"    # a whole message (assistant; or a replayed history turn)
+    thinking = "thinking"  # incremental reasoning/thought chunk (non-terminal; U5)
+    tool_call = "tool_call"  # a tool invocation start/update, structured in `meta` (U5)
+    error = "error"        # terminal failure (carries a machine `code`)
+    done = "done"          # terminal normal/cancel end (carries optional reason)
 
 
 TERMINAL = (ChatEventType.error, ChatEventType.done)
@@ -31,12 +33,18 @@ class ChatEvent:
     type: ChatEventType
     data: str = ""
     code: Optional[str] = None
+    #: structured payload for `tool_call` (ToolCallMeta: id/name/status/input/output)
+    #: and replayed `message` turns ({"role": ..., "replay": True}); omitted when None.
+    meta: Optional[dict] = None
 
     def is_terminal(self) -> bool:
         return self.type in TERMINAL
 
     def to_dict(self) -> dict:
-        return {"type": self.type.value, "data": self.data, "code": self.code}
+        d = {"type": self.type.value, "data": self.data, "code": self.code}
+        if self.meta is not None:
+            d["meta"] = self.meta
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "ChatEvent":
@@ -44,6 +52,7 @@ class ChatEvent:
             type=ChatEventType(d["type"]),
             data=d.get("data", ""),
             code=d.get("code"),
+            meta=d.get("meta"),
         )
 
     # convenience constructors
@@ -52,12 +61,38 @@ class ChatEvent:
         return ChatEvent(ChatEventType.token, text)
 
     @staticmethod
+    def thinking_(text: str) -> "ChatEvent":
+        return ChatEvent(ChatEventType.thinking, text)
+
+    @staticmethod
+    def tool_(title: str, *, id: str, name: str = "", status: str = "in_progress",
+              input: str = "", output: str = "") -> "ChatEvent":  # noqa: A002
+        return ChatEvent(ChatEventType.tool_call, title, meta={
+            "id": id, "name": name or title, "status": status,
+            "input": input, "output": output,
+        })
+
+    @staticmethod
+    def message_(text: str, role: str = "assistant", replay: bool = True) -> "ChatEvent":
+        return ChatEvent(ChatEventType.message, text, meta={"role": role, "replay": replay})
+
+    @staticmethod
     def done_(reason: str = "completed", code: Optional[str] = None) -> "ChatEvent":
         return ChatEvent(ChatEventType.done, reason, code=code)
 
     @staticmethod
     def error_(message: str, code: str = "transport_error") -> "ChatEvent":
         return ChatEvent(ChatEventType.error, message, code=code)
+
+
+@dataclass
+class HistoryTurn:
+    """A prior conversation turn reconstructed from an agent session (FR-W10)."""
+    role: str   # "user" | "assistant"
+    text: str
+
+    def to_dict(self) -> dict:
+        return {"role": self.role, "text": self.text}
 
 
 async def normalize_stream(raw: AsyncIterator[ChatEvent]) -> AsyncIterator[ChatEvent]:

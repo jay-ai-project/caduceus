@@ -37,7 +37,7 @@ class FakeAcpProcess:
     notifications before the final session/prompt response."""
 
     def __init__(self, *, session_id="sess-1", load_ok=False, prompt_updates=None,
-                 prompt_error=None, extra_requests=None):
+                 prompt_error=None, extra_requests=None, raw_updates=None, load_replay=None):
         self.stdout = asyncio.StreamReader()
         self.stdin = _FakeStdin(self)
         self.returncode = None
@@ -46,8 +46,14 @@ class FakeAcpProcess:
         self.prompt_updates = prompt_updates if prompt_updates is not None else [("PO",), ("NG",)]
         self.prompt_error = prompt_error
         self.extra_requests = extra_requests or []   # agent→client requests during prompt
+        self.raw_updates = raw_updates               # full `update` dicts emitted during prompt
+        self.load_replay = load_replay or []         # `update` dicts replayed during session/load
         self.received: list[dict] = []
         self.client_replies: list[dict] = []
+
+    def _feed_update(self, update: dict) -> None:
+        self._feed({"jsonrpc": "2.0", "method": "session/update",
+                    "params": {"sessionId": self.session_id, "update": update}})
 
     def _feed(self, obj: dict) -> None:
         self.stdout.feed_data((json.dumps(obj) + "\n").encode("utf-8"))
@@ -70,17 +76,21 @@ class FakeAcpProcess:
             self._feed({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": self.session_id}})
         elif method == "session/load":
             if self.load_ok:
+                for upd in self.load_replay:
+                    self._feed_update(upd)  # replay prior turns before the result
                 self._feed({"jsonrpc": "2.0", "id": rid, "result": {}})
             else:
                 self._feed({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "unknown session"}})
         elif method == "session/prompt":
             for req in self.extra_requests:
                 self._feed(req)  # agent→client request mid-stream
-            for upd in self.prompt_updates:
-                self._feed({"jsonrpc": "2.0", "method": "session/update",
-                            "params": {"sessionId": self.session_id,
-                                       "update": {"sessionUpdate": "agent_message_chunk",
-                                                  "content": {"type": "text", "text": upd[0]}}}})
+            if self.raw_updates is not None:
+                for upd in self.raw_updates:
+                    self._feed_update(upd)
+            else:
+                for upd in self.prompt_updates:
+                    self._feed_update({"sessionUpdate": "agent_message_chunk",
+                                       "content": {"type": "text", "text": upd[0]}})
             if self.prompt_error is not None:
                 self._feed({"jsonrpc": "2.0", "id": rid, "error": {"code": -32001, "message": self.prompt_error}})
             else:
@@ -206,3 +216,69 @@ async def test_health_unhealthy_when_spawn_fails():
     t = AcpTransport(_local_rec(), spawn=bad_spawn)
     hs = await t.health()
     assert hs.level == HealthLevel.unhealthy and not hs.shallow
+
+
+# ---- U5: thinking + tool-call mapping ----------------------------
+async def test_thought_chunk_maps_to_thinking():
+    updates = [
+        {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "let me think"}},
+        {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "answer"}},
+    ]
+    t = _transport(FakeAcpProcess(raw_updates=updates))
+    evs = await _collect(t)
+    assert [e.type for e in evs] == [ChatEventType.thinking, ChatEventType.token, ChatEventType.done]
+    assert evs[0].data == "let me think"
+
+
+async def test_tool_call_and_update_map_to_tool_events():
+    updates = [
+        {"sessionUpdate": "tool_call", "toolCallId": "tc1", "kind": "read", "title": "read_file",
+         "status": "in_progress", "rawInput": {"path": "/x"}},
+        {"sessionUpdate": "tool_call_update", "toolCallId": "tc1", "status": "completed",
+         "content": [{"type": "content", "content": {"type": "text", "text": "file body"}}]},
+        {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "done"}},
+    ]
+    t = _transport(FakeAcpProcess(raw_updates=updates))
+    evs = await _collect(t)
+    tools = [e for e in evs if e.type == ChatEventType.tool_call]
+    assert len(tools) == 2
+    assert tools[0].meta["id"] == "tc1" and tools[0].meta["status"] == "in_progress"
+    assert '"path": "/x"' in tools[0].meta["input"]
+    assert tools[1].meta["status"] == "completed" and "file body" in tools[1].meta["output"]
+
+
+async def test_malformed_update_is_ignored_not_fatal():
+    updates = [
+        {"sessionUpdate": "tool_call"},  # no toolCallId → ignored
+        {"sessionUpdate": "weird_kind", "content": {"text": "x"}},  # unknown → ignored
+        {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "ok"}},
+    ]
+    t = _transport(FakeAcpProcess(raw_updates=updates))
+    evs = await _collect(t)
+    assert [e.type for e in evs] == [ChatEventType.token, ChatEventType.done]
+
+
+# ---- U5: history replay via session/load -------------------------
+async def test_load_history_returns_coalesced_turns():
+    replay = [
+        {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "hello"}},
+        {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi "}},
+        {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "there"}},
+        {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "bye"}},
+    ]
+    proc = FakeAcpProcess(load_ok=True, load_replay=replay)
+    t = _transport(proc, rec=_local_rec(session_id="sess-9"))
+    turns = await t.load_history("sess-9")
+    assert [(x.role, x.text) for x in turns] == [
+        ("user", "hello"), ("assistant", "hi there"), ("user", "bye")]
+
+
+async def test_load_history_empty_on_load_failure():
+    proc = FakeAcpProcess(load_ok=False)
+    t = _transport(proc, rec=_local_rec(session_id="stale"))
+    assert await t.load_history("stale") == []
+
+
+async def test_load_history_empty_without_session():
+    t = _transport(FakeAcpProcess())
+    assert await t.load_history(None) == []

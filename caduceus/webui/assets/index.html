@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Caduceus</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">⚕ Caduceus</div>
+    <div id="gw-status" class="gw-status" data-testid="gateway-status">connecting…</div>
+  </header>
+
+  <main id="layout">
+    <aside id="sidebar">
+      <div class="sidebar-head">
+        <span>Agents</span>
+        <button id="add-agent-btn" class="btn primary sm" data-testid="add-agent-button">+ Add</button>
+      </div>
+      <div id="agent-list" data-testid="agent-list"></div>
+    </aside>
+
+    <section id="main">
+      <div id="chat-empty" class="empty">
+        <p>Select an agent to start chatting.</p>
+      </div>
+      <div id="chat" class="chat hidden" data-testid="chat-view">
+        <div id="chat-head" class="chat-head"></div>
+        <div id="transcript" class="transcript" data-testid="transcript"></div>
+        <form id="composer" class="composer" data-testid="composer">
+          <textarea id="composer-input" rows="1" placeholder="Message…  (Enter to send, Shift+Enter for newline)"
+                    data-testid="composer-input"></textarea>
+          <button id="composer-send" class="btn primary" type="submit" data-testid="composer-send">Send</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- Add Agent modal -->
+  <div id="modal-backdrop" class="modal-backdrop hidden" data-testid="add-agent-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <span>Add agent</span>
+        <button id="modal-close" class="icon-btn" data-testid="modal-close">✕</button>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-tab="local" data-testid="tab-local">Local sandbox</button>
+        <button class="tab" data-tab="remote" data-testid="tab-remote">Remote</button>
+      </div>
+
+      <form id="form-local" class="modal-form" data-testid="form-local">
+        <label>Name <input name="name" required placeholder="my-agent" data-testid="local-name" /></label>
+        <label>Model <span class="muted">(optional)</span> <input name="model" placeholder="default" data-testid="local-model" /></label>
+        <label>Upstream URL <span class="muted">(optional)</span> <input name="upstream_url" placeholder="default" /></label>
+        <label>Image <span class="muted">(optional)</span> <input name="image" placeholder="default" /></label>
+        <button class="btn primary" type="submit" data-testid="local-submit">Create &amp; provision</button>
+      </form>
+
+      <form id="form-remote" class="modal-form hidden" data-testid="form-remote">
+        <label>Name <input name="name" required placeholder="my-remote" data-testid="remote-name" /></label>
+        <label>Endpoint <input name="endpoint" required placeholder="http://host:9119" data-testid="remote-endpoint" /></label>
+        <label>Auth <span class="muted">(optional)</span> <input name="auth" placeholder="bearer token" /></label>
+        <button class="btn primary" type="submit" data-testid="remote-submit">Register</button>
+      </form>
+
+      <pre id="modal-log" class="modal-log hidden" data-testid="modal-log"></pre>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

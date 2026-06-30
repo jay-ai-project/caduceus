@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from caduceus.common.logging import get_logger
-from caduceus.common.models import AgentRecord, HealthLevel, HealthStatus, Lifecycle
+from caduceus.common.models import AgentKind, AgentRecord, HealthLevel, HealthStatus, Lifecycle
 from caduceus.transport.base import Transport
-from caduceus.transport.events import ChatEvent, ChatEventType
+from caduceus.transport.events import ChatEvent, ChatEventType, HistoryTurn
 
 log = get_logger("caduceus.transport.chat")
 
@@ -73,6 +73,24 @@ class ChatService:
             return
         async for ev in self._stream_pooled(rec, message):
             yield ev
+
+    # ---- history replay (FR-W10; best-effort, local only) ------------
+    async def history(self, name: str) -> list[HistoryTurn]:
+        """Prior turns for an agent's persisted session, best-effort.
+
+        Remote agents, sessionless agents, or any failure → `[]` (BR-W8/W9).
+        Uses a dedicated short-lived transport so the pooled live-chat transport
+        and its running session are never disturbed (BR-W10).
+        """
+        rec = self.registry.get(name)
+        if rec is None or rec.kind != AgentKind.local or not rec.session_id:
+            return []
+        transport = self._factory(rec)
+        try:
+            return await transport.load_history(rec.session_id)
+        except Exception as exc:  # noqa: BLE001 — best-effort; never raise to the UI
+            log.info("history load error for %s: %s", name, exc)
+            return []
 
     # ---- per-call transport (legacy / remote) ------------------------
     async def _stream_oneshot(self, rec: AgentRecord, message: str) -> AsyncIterator[ChatEvent]:

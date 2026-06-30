@@ -8,8 +8,9 @@ import pytest
 from caduceus.common.models import AgentKind
 from caduceus.config.editor import ReadOnlyError
 from caduceus.daemon.control_api import build_control_app
+from caduceus.transport.events import HistoryTurn
 
-from tests.fakes import FakeConfigService, build_fake_services, make_agent
+from tests.fakes import FakeChatService, FakeConfigService, build_fake_services, make_agent
 
 
 def _client(services):
@@ -78,6 +79,40 @@ async def test_remote_config_returns_409():
         resp = await c.put("/agents/r1/config", json={"add_skills": ["x"]})
     assert resp.status_code == 409
     assert "read-only" in resp.json()["error"]["message"]
+
+
+# ---- U5: Web UI serving + history endpoint ------------------------
+async def test_root_redirects_to_ui():
+    services = build_fake_services()
+    async with _client(services) as c:
+        resp = await c.get("/")  # AsyncClient does not auto-follow
+    assert resp.status_code in (302, 307)
+    assert resp.headers["location"] == "/ui/"
+
+
+async def test_ui_index_is_served():
+    services = build_fake_services()
+    async with _client(services) as c:
+        resp = await c.get("/ui/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Caduceus" in resp.text
+
+
+async def test_history_endpoint_returns_turns():
+    services = build_fake_services(agents=[make_agent(name="a1")])
+    services.chat_service = FakeChatService(history=[HistoryTurn("user", "hi"), HistoryTurn("assistant", "yo")])
+    async with _client(services) as c:
+        resp = await c.get("/agents/a1/history")
+    assert resp.status_code == 200
+    assert resp.json()["turns"] == [{"role": "user", "text": "hi"}, {"role": "assistant", "text": "yo"}]
+
+
+async def test_history_unknown_agent_errors():
+    services = build_fake_services()
+    async with _client(services) as c:
+        resp = await c.get("/agents/nope/history")
+    assert resp.status_code == 404
 
 
 async def test_logs_local_only():

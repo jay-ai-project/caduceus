@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from caduceus.common.models import AgentKind, HealthLevel, HealthStatus, Lifecycle
-from caduceus.transport.events import ChatEvent, ChatEventType
+from caduceus.transport.events import ChatEvent, ChatEventType, HistoryTurn
 from caduceus.transport.chat import ChatService
 
 from tests.fakes import FakeRegistry, FakeTransport, make_agent
@@ -182,3 +182,36 @@ async def test_cooperative_cancel_preserves_session():
 
     assert ft.cancel_sent is True
     assert reg.sessions_set == []  # session preserved (s1 unchanged)
+
+
+# ---- U5: history (FR-W10, best-effort, local-only) ----------------
+async def test_history_local_returns_turns():
+    rec = make_agent(session_id="s1")
+    turns = [HistoryTurn("user", "hi"), HistoryTurn("assistant", "yo")]
+    cs = ChatService(FakeRegistry([rec]), transport_factory=lambda r: FakeTransport(r, history_turns=turns))
+    assert await cs.history("a1") == turns
+
+
+async def test_history_remote_is_empty():
+    rec = make_agent(kind=AgentKind.remote, session_id="s1")
+    cs = ChatService(FakeRegistry([rec]),
+                     transport_factory=lambda r: FakeTransport(r, history_turns=[HistoryTurn("user", "x")]))
+    assert await cs.history("a1") == []
+
+
+async def test_history_sessionless_is_empty():
+    rec = make_agent(session_id=None)
+    cs = ChatService(FakeRegistry([rec]))
+    assert await cs.history("a1") == []
+
+
+async def test_history_unknown_agent_is_empty():
+    cs = ChatService(FakeRegistry([]))
+    assert await cs.history("nope") == []
+
+
+async def test_history_swallows_transport_error():
+    rec = make_agent(session_id="s1")
+    cs = ChatService(FakeRegistry([rec]),
+                     transport_factory=lambda r: FakeTransport(r, history_error=RuntimeError("boom")))
+    assert await cs.history("a1") == []

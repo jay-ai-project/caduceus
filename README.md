@@ -8,10 +8,28 @@ Caduceus:
   through caduceus to a configurable upstream (default: host `llama-swap`, model
   `llamacpp/gemma-4-12b`),
 - lets you chat (streaming, session-persistent) with and configure each agent through a
-  common transport.
+  common transport,
+- serves a simple **Web UI** (dashboard + add agent + streaming chat with thinking and
+  tool-call display) on the loopback Control API.
 
 > Status: under active construction via the AI-DLC workflow (see `aidlc-docs/`).
-> Implemented so far: **U1 — AI-Gateway** (OpenAI-compatible LLM proxy).
+> Implemented: **U1 AI-Gateway · U2 Registry/Provisioner · U3 Transport/Chat ·
+> U4 CLI/Daemon/Config · U5 Web UI**.
+
+## Web UI
+
+Start the daemon, then open the UI in a browser:
+
+```bash
+caduceus gateway start          # serves the Control API on 127.0.0.1:9700
+# open http://127.0.0.1:9700/   (redirects to the Web UI at /ui/)
+```
+
+The UI lets you watch agents and their provisioning/health status (auto-refreshing),
+create a local sandbox agent (with live provisioning progress) or register a remote one,
+and chat with an agent — streaming responses with collapsible **thinking** blocks and
+**tool-call** cards. It is served loopback-only with no authentication (personal local
+tool). Chat history is best-effort loaded from a local agent's hermes session.
 
 ## Development
 

@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Optional
 
 from caduceus.common.models import AgentRecord, HealthStatus
-from caduceus.transport.events import ChatEvent, normalize_stream
+from caduceus.transport.events import ChatEvent, HistoryTurn, normalize_stream
 
 
 class TransportState(str, Enum):
@@ -72,6 +72,15 @@ class Transport(ABC):
     def request_cancel(self) -> None:
         """Cooperative cancel (Q6/BR-C10): the raw stream ends with done{cancelled}."""
         self._cancelled = True
+
+    # ---- optional history replay (local agents only; FR-W10) ---------
+    async def load_history(self, session_id: Optional[str]) -> list[HistoryTurn]:
+        """Best-effort prior-turn replay for a persisted session.
+
+        Default: unsupported → empty (remote/serve transports inherit this).
+        `AcpTransport` overrides to capture the ACP `session/load` replay.
+        """
+        return []
 
     # ---- optional config (local agents only; remote → NotSupported) --
     async def get_config(self):  # noqa: ANN201

@@ -29,12 +29,23 @@ from caduceus.common.logging import get_logger, redact
 from caduceus.common.models import AgentRecord, HealthLevel, HealthStatus
 from caduceus.common.settings import Timeouts
 from caduceus.transport.base import Transport, TransportKind, TransportState
-from caduceus.transport.events import ChatEvent
+from caduceus.transport.events import ChatEvent, HistoryTurn
 
 log = get_logger("caduceus.transport.acp")
 
 ACP_PROTOCOL_VERSION = 1
 Spawn = Callable[[], Awaitable["asyncio.subprocess.Process"]]
+
+#: per-field cap for tool_call input/output projected into a ChatEvent (BR-W7)
+TOOL_FIELD_CAP = 4096
+
+#: ACP tool-call status strings → normalized {pending,in_progress,completed,failed}
+_STATUS_MAP = {
+    "pending": "pending", "queued": "pending",
+    "in_progress": "in_progress", "running": "in_progress", "started": "in_progress",
+    "completed": "completed", "success": "completed", "done": "completed",
+    "failed": "failed", "error": "failed", "cancelled": "failed",
+}
 
 
 def _now() -> str:
@@ -45,6 +56,80 @@ def _text_of(content: Optional[dict]) -> str:
     if not isinstance(content, dict):
         return ""
     return content.get("text", "") or ""
+
+
+def _norm_status(s) -> str:
+    return _STATUS_MAP.get(str(s or "").lower(), "in_progress")
+
+
+def _truncate(s: str) -> str:
+    return s if len(s) <= TOOL_FIELD_CAP else s[:TOOL_FIELD_CAP] + "…"
+
+
+def _stringify(v) -> str:
+    """Best-effort compact string for tool args/results (never raises)."""
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    try:
+        return json.dumps(v, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _collect_content(update: dict) -> str:
+    """Join text parts of an ACP tool `content` array plus any rawOutput (best-effort)."""
+    parts: list[str] = []
+    content = update.get("content")
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                # tool content blocks may be {"type":"content","content":{"type":"text",...}}
+                inner = item.get("content") if isinstance(item.get("content"), dict) else item
+                t = _text_of(inner)
+                if t:
+                    parts.append(t)
+    elif isinstance(content, dict):
+        t = _text_of(content)
+        if t:
+            parts.append(t)
+    raw = update.get("rawOutput")
+    if raw is not None:
+        parts.append(_stringify(raw))
+    return "\n".join(p for p in parts if p)
+
+
+def _tool_event(update: dict) -> Optional[ChatEvent]:
+    """Map an ACP tool_call / tool_call_update into a `tool_call` ChatEvent (BR-W6: never raises)."""
+    tid = str(update.get("toolCallId") or update.get("id") or "")
+    if not tid:
+        return None
+    title = update.get("title") or update.get("kind") or "tool"
+    return ChatEvent.tool_(
+        str(title),
+        id=tid,
+        name=str(update.get("kind") or title),
+        status=_norm_status(update.get("status")),
+        input=_truncate(_stringify(update.get("rawInput"))),
+        output=_truncate(_collect_content(update)),
+    )
+
+
+def _map_update(update: dict) -> Optional[ChatEvent]:
+    """ACP `session/update` → ChatEvent (live turn). None = ignore. Never raises (BR-W6)."""
+    if not isinstance(update, dict):
+        return None
+    kind = update.get("sessionUpdate")
+    if kind == "agent_message_chunk":
+        text = _text_of(update.get("content"))
+        return ChatEvent.token_(text) if text else None
+    if kind == "agent_thought_chunk":
+        text = _text_of(update.get("content"))
+        return ChatEvent.thinking_(text) if text else None
+    if kind in ("tool_call", "tool_call_update"):
+        return _tool_event(update)
+    return None
 
 
 def _pick_allow(options: list[dict]) -> Optional[str]:
@@ -125,6 +210,76 @@ class AcpTransport(Transport):
             log.info("acp: session/load failed (%s); creating a new session", exc)
             return None
 
+    # ---- history replay (FR-W10; best-effort, local only) ------------
+    async def load_history(self, session_id: Optional[str]) -> list[HistoryTurn]:
+        """Resume `session_id` and capture the ACP `session/load` replay as turns.
+
+        Best-effort (BR-W8/W9): any failure (no session, load unsupported, error)
+        yields `[]`. Uses this (dedicated, short-lived) transport's own process so
+        it never disturbs a pooled live-chat transport (BR-W10).
+        """
+        if not session_id:
+            return []
+        turns: list[HistoryTurn] = []
+        try:
+            self._proc = await self._spawn()
+            await asyncio.wait_for(self._rpc("initialize", {
+                "protocolVersion": ACP_PROTOCOL_VERSION,
+                "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
+            }), timeout=max(self._timeouts.connect, 30.0))
+            turns = await asyncio.wait_for(self._replay_load(session_id),
+                                           timeout=max(self._timeouts.read, 60.0))
+        except Exception as exc:  # noqa: BLE001 — best-effort; never surface to the UI
+            log.info("acp: history load failed for %s (%s)", session_id, redact(str(exc)))
+            turns = []
+        finally:
+            await self._kill()
+            self.state = TransportState.closed
+        return turns
+
+    async def _replay_load(self, session_id: str) -> list[HistoryTurn]:
+        rid = self._next()
+        await self._send({"jsonrpc": "2.0", "id": rid, "method": "session/load",
+                          "params": {"sessionId": session_id, "cwd": self._cwd(), "mcpServers": []}})
+        turns: list[HistoryTurn] = []
+        cur_role: Optional[str] = None
+        buf: list[str] = []
+
+        def flush() -> None:
+            nonlocal cur_role, buf
+            if cur_role is not None and buf:
+                turns.append(HistoryTurn(role=cur_role, text="".join(buf)))
+            cur_role, buf = None, []
+
+        while True:
+            msg = await self._read_json()
+            if msg is None:
+                break  # EOF before load response → return what we captured
+            if "id" in msg and ("result" in msg or "error" in msg):
+                if msg.get("id") == rid:
+                    if "error" in msg:
+                        raise RuntimeError(str(msg["error"].get("message", "session/load failed")))
+                    break  # replay complete
+                continue
+            if "method" in msg and "id" in msg:
+                await self._handle_agent_request(msg)
+                continue
+            if msg.get("method") == "session/update":
+                upd = (msg.get("params") or {}).get("update", {})
+                su = upd.get("sessionUpdate")
+                role = "user" if su == "user_message_chunk" else ("assistant" if su == "agent_message_chunk" else None)
+                if role is None:
+                    continue
+                text = _text_of(upd.get("content"))
+                if not text:
+                    continue
+                if role != cur_role:
+                    flush()
+                    cur_role = role
+                buf.append(text)
+        flush()
+        return turns
+
     async def close(self) -> None:
         self.state = TransportState.closed
         await self._kill()
@@ -194,12 +349,10 @@ class AcpTransport(Transport):
                 await self._handle_agent_request(msg)
                 continue
             if msg.get("method") == "session/update":
-                upd = (msg.get("params") or {}).get("update", {})
-                if upd.get("sessionUpdate") == "agent_message_chunk":
-                    text = _text_of(upd.get("content"))
-                    if text:
-                        yield ChatEvent.token_(text)
-            # other notifications (thoughts/usage/commands) are ignored
+                ev = _map_update((msg.get("params") or {}).get("update", {}))
+                if ev is not None:
+                    yield ev
+            # other notifications (plan/usage/commands) are ignored
 
     async def _cancel(self) -> None:
         try:

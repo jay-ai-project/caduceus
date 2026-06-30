@@ -152,6 +152,8 @@ class FakeTransport(Transport):
         reject_session: Optional[str] = None,
         fail_open: bool = False,
         health_level: HealthLevel = HealthLevel.healthy,
+        history_turns=None,
+        history_error: Optional[Exception] = None,
     ):
         super().__init__(rec)
         self.script = script if script is not None else [ChatEvent.token_("hi"), ChatEvent.done_()]
@@ -159,9 +161,16 @@ class FakeTransport(Transport):
         self.reject_session = reject_session
         self.fail_open = fail_open
         self.health_level = health_level
+        self.history_turns = history_turns
+        self.history_error = history_error
         self.opened = False
         self.closed = False
         self.cancel_sent = False
+
+    async def load_history(self, session_id):  # noqa: ANN001
+        if self.history_error is not None:
+            raise self.history_error
+        return self.history_turns or []
 
     async def open(self) -> None:
         if self.fail_open:
@@ -298,12 +307,16 @@ class FakeAgentService:
 
 
 class FakeChatService:
-    def __init__(self, script=None):
+    def __init__(self, script=None, history=None):
         self.script = script if script is not None else [ChatEvent.token_("hi"), ChatEvent.done_()]
+        self._history = history or []
 
     async def chat_stream(self, name, message):
         for ev in self.script:
             yield ev
+
+    async def history(self, name):
+        return list(self._history)
 
 
 class FakeConfigService:

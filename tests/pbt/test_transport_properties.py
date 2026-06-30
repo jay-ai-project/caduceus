@@ -38,9 +38,24 @@ def test_chat_event_round_trip(t, data, code):
 _raw_event = st.one_of(
     st.builds(ChatEvent.token_, st.text(max_size=5)),
     st.builds(lambda s: ChatEvent(ChatEventType.message, s), st.text(max_size=5)),
+    # U5 non-terminal additions — must NOT break the single-terminal invariant (PBT-W1)
+    st.builds(ChatEvent.thinking_, st.text(max_size=5)),
+    st.builds(lambda s: ChatEvent.tool_(s or "t", id=s or "id1", status="in_progress"), st.text(max_size=5)),
     st.builds(lambda s: ChatEvent.done_(s or "completed"), st.text(max_size=5)),
     st.builds(lambda s: ChatEvent.error_(s or "e", code="x"), st.text(max_size=5)),
 )
+
+
+# ---- PBT-W2: ChatEvent round-trip incl. populated `meta` ----------
+@given(
+    title=st.text(max_size=8), tid=st.text(min_size=1, max_size=8),
+    status=st.sampled_from(["pending", "in_progress", "completed", "failed"]),
+    inp=st.text(max_size=12), out=st.text(max_size=12),
+)
+def test_tool_event_round_trip_with_meta(title, tid, status, inp, out):
+    ev = ChatEvent.tool_(title, id=tid, status=status, input=inp, output=out)
+    assert ChatEvent.from_dict(ev.to_dict()) == ev
+    assert ev.meta["id"] == tid and ev.meta["status"] == status
 
 
 async def _collect(agen):
