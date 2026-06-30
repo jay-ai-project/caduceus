@@ -17,8 +17,8 @@ complete._
 ## Test Execution Summary
 
 ### Unit Tests (`tests/unit` + `tests/pbt`)
-- **Total Tests**: **146**
-- **Passed**: **146**
+- **Total Tests**: **154**
+- **Passed**: **154**
 - **Failed**: **0**
 - **Breakdown**: 123 deterministic unit + 23 property-based (Hypothesis)
   - includes 9 new `AcpTransport` tests (protocol mapping, session resume/recreate, auto-approve permission, cooperative cancel, health) driving a fake `hermes acp` process.
@@ -81,6 +81,13 @@ longer rolls back a successfully-provisioned agent).
   sandbox = liveness; real failures surface on chat). Verified: 0 probes / 0
   gateway requests over 75 s idle with a running agent, while supervisor
   auto-restart still recovers a stopped sandbox (~40 s).
+- **`agent create` progress** — provisioning is slow (image build/load, sandbox
+  create), and the CLI previously showed nothing until done. `POST /agents` now
+  **streams live progress as SSE** (`AgentService.create(progress=…)` emits
+  `preparing image` → `building image`/`loading image into sandbox runtime` →
+  `creating sandbox` → `configuring agent` → `verifying health`); the CLI prints
+  these to **stderr** (so `--json` stdout stays pure JSON) and the final result to
+  stdout. Verified live, incl. clean `--json`.
 - **Remaining probe-log noise** — the in-sandbox hermes agent still probes its
   custom endpoint to auto-detect the backend (Ollama/LM Studio/llama.cpp/OpenAI)
   and model context length on each acp-process spawn and every ~5 min (its
@@ -117,7 +124,7 @@ longer rolls back a successfully-provisioned agent).
 
 ## Overall Status
 - **Build**: ✅ Success
-- **Automated Tests**: ✅ Pass (146/146 unit + PBT).
+- **Automated Tests**: ✅ Pass (154/154 unit + PBT).
 - **Integration**: ✅ **All 6 scenarios PASS** live (control plane + agent data plane: provision → chat → supervise). 10 defects found and fixed, incl. an approved transport pivot to `hermes acp` (stdio).
 - **Ready for Operations**: **Yes** — full local-agent lifecycle works end-to-end on the host; automated suite green; build reproducible (image auto-loaded into sbx).
 

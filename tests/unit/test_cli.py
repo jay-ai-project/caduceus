@@ -58,7 +58,24 @@ def test_agent_create(monkeypatch):
     _patch_client(monkeypatch)
     res = runner.invoke(cli_app.app, ["agent", "create", "new1"])
     assert res.exit_code == 0
-    assert "new1" in res.stdout
+    assert "created agent 'new1'" in res.stdout
+    assert "creating sandbox" in res.output  # provisioning progress shown
+
+
+def test_agent_create_json_stdout_is_clean(monkeypatch):
+    # progress goes to stderr; --json stdout must be parseable JSON
+    _patch_client(monkeypatch)
+    res = runner.invoke(cli_app.app, ["agent", "create", "new1", "--json"])
+    assert res.exit_code == 0
+    data = json.loads(res.stdout)              # stdout is pure JSON
+    assert data[0]["name"] == "new1"
+    assert "creating sandbox" in res.stderr    # progress on stderr, not stdout
+
+
+def test_agent_create_error_exit_code(monkeypatch):
+    _patch_client(monkeypatch, raise_error=ControlError("provision failed", exit_code=1))
+    res = runner.invoke(cli_app.app, ["agent", "create", "new1"])
+    assert res.exit_code == 1
 
 
 def test_agent_rm_error_maps_exit_code(monkeypatch):

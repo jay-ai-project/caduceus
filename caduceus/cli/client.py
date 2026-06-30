@@ -61,10 +61,20 @@ class ControlAPIClient:
     #: the default per-call timeout (Build & Test, Finding E, 2026-06-30).
     PROVISION_TIMEOUT = 1800.0
 
-    def create_agent(self, spec: CreateSpec) -> AgentView:
-        return AgentView.from_dict(
-            self._json(self._c().post("/agents", json=spec.to_dict(), timeout=self.PROVISION_TIMEOUT))
-        )
+    def create_agent(self, spec: CreateSpec) -> Iterator[dict]:
+        """Stream provisioning progress as SSE events; yields
+        `{"event": "progress"|"done", ...}`. Raises ControlError on failure."""
+        with self._c().stream("POST", "/agents", json=spec.to_dict(), timeout=self.PROVISION_TIMEOUT) as resp:
+            if resp.status_code >= 400:
+                resp.read()
+                raise ControlError(_err_message(resp))
+            for line in resp.iter_lines():
+                obj = _parse_sse_data(line)
+                if obj is None:
+                    continue
+                if obj.get("event") == "error":
+                    raise ControlError(obj.get("message", "create failed"))
+                yield obj
 
     def register_agent(self, spec: RegisterSpec) -> dict:
         return self._json(self._c().post("/agents/register", json=spec.to_dict()))

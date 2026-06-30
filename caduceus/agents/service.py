@@ -48,19 +48,31 @@ class AgentService:
         self._transport_closer = transport_closer
 
     # ---- create (local, saga) ---------------------------------------
-    async def create(self, name: str) -> AgentRecord:
+    async def create(self, name: str, progress=None) -> AgentRecord:
+        """Provision a local agent. `progress(phase, detail="")` (optional, sync or
+        async) is called at each step so callers can show live status."""
+        async def _emit(phase: str, detail: str = "") -> None:
+            if progress is None:
+                return
+            res = progress(phase, detail)
+            if hasattr(res, "__await__"):
+                await res
+
         name = validate_name(name)
         if self.registry.get(name) is not None:
             raise invalid_request_error(f"agent '{name}' already exists")
 
         token = mint_token()
         sb = sandbox_name(name)
-        tag = await self.images.ensure_image(self.image_tag)
+        await _emit("preparing image")
+        tag = await self.images.ensure_image(self.image_tag, progress=_emit)
 
         created = False
         try:
+            await _emit("creating sandbox")
             await self.provisioner.create_sandbox(sb, tag, {"OPENAI_API_KEY": token})
             created = True
+            await _emit("configuring agent")
             await self.provisioner.write_file(
                 sb, HERMES_CONFIG_PATH, render_hermes_config(self.aigateway_url, self.model_alias, api_key=token)
             )
@@ -75,6 +87,7 @@ class AgentService:
                 created_at=now, updated_at=now,
             )
             await self.registry.upsert(rec)
+            await _emit("verifying health")
             # Best-effort first health snapshot — a probe error must NOT tear down
             # a successfully-provisioned agent (RESILIENCY; Build & Test 2026-06-30).
             try:

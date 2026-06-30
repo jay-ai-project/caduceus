@@ -27,6 +27,12 @@ def error(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+def progress(phase: str, detail: str = "") -> None:
+    """Live status line during long operations → stderr, so `--json` stdout stays clean."""
+    line = f"  → {phase}" + (f" ({detail})" if detail else "") + " …"
+    print(line, file=sys.stderr, flush=True)
+
+
 def render_agents(views, as_json: bool) -> None:
     if as_json:
         emit_json([v.to_dict() for v in views])

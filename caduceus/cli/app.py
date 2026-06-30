@@ -14,7 +14,7 @@ import typer
 from caduceus.cli import render
 from caduceus.cli.client import ControlAPIClient, ControlError
 from caduceus.cli.render import EXIT_RUNTIME, EXIT_USAGE
-from caduceus.common.dto import ConfigChange, CreateSpec, RegisterSpec
+from caduceus.common.dto import AgentView, ConfigChange, CreateSpec, RegisterSpec
 from caduceus.transport.events import ChatEventType
 
 app = typer.Typer(help="caduceus — gateway hub + CLI for sandboxed hermes agents", no_args_is_help=True)
@@ -59,8 +59,17 @@ def agent_create(name: str, model: Optional[str] = None,
     client = _client_or_exit()
 
     def go():
-        view = client.create_agent(CreateSpec(name, model, upstream_url, image))
-        render.render_agents([view], json_out) if json_out else render.emit(f"created agent '{view.name}' ({view.lifecycle})")
+        view = None
+        for ev in client.create_agent(CreateSpec(name, model, upstream_url, image)):
+            if ev.get("event") == "progress":
+                render.progress(ev.get("phase", ""), ev.get("detail", ""))
+            elif ev.get("event") == "done":
+                view = AgentView.from_dict(ev["agent"])
+        if view is None:
+            render.error("create did not complete")
+            raise typer.Exit(EXIT_RUNTIME)
+        render.render_agents([view], json_out) if json_out else render.emit(
+            f"created agent '{view.name}' ({view.lifecycle})")
     _run(go)
 
 

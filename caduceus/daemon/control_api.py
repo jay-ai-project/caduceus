@@ -7,6 +7,7 @@ call → JSON/SSE. Errors map to JSON + status. `chat`/`logs` stream as SSE.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Optional
 
@@ -39,6 +40,16 @@ def build_control_app(services, status_provider=None) -> FastAPI:
             return JSONResponse(exc.to_openai(), status_code=exc.http_status)
         return JSONResponse({"error": {"message": str(exc), "type": "internal_error"}}, status_code=500)
 
+    def _err_event(exc: Exception) -> dict:
+        """Flatten an exception to an in-band SSE error payload (for streamed routes)."""
+        body = _err(exc).body
+        try:
+            payload = json.loads(body)
+            msg = payload.get("error", {}).get("message", str(exc))
+        except (ValueError, TypeError, AttributeError):
+            msg = str(exc)
+        return {"message": msg}
+
     @app.get("/healthz")
     async def healthz():
         return {"ok": True}
@@ -57,12 +68,35 @@ def build_control_app(services, status_provider=None) -> FastAPI:
 
     @app.post("/agents")
     async def create(request: Request):
-        try:
-            spec = CreateSpec.from_dict(await request.json())
-            rec = await agents.create(spec.name)
-            return AgentView.from_record(rec).to_dict()
-        except Exception as exc:  # noqa: BLE001
-            return _err(exc)
+        # Provisioning is slow (image build/load, sandbox create); stream live
+        # progress as SSE so the CLI can show status, then a final done/error event.
+        spec = CreateSpec.from_dict(await request.json())
+        q: "asyncio.Queue" = asyncio.Queue()
+
+        async def progress(phase: str, detail: str = "") -> None:
+            await q.put({"event": "progress", "phase": phase, "detail": detail})
+
+        async def run():
+            try:
+                rec = await agents.create(spec.name, progress=progress)
+                await q.put({"event": "done", "agent": AgentView.from_record(rec).to_dict()})
+            except Exception as exc:  # noqa: BLE001 — surface as an in-band error event
+                await q.put({"event": "error", **_err_event(exc)})
+            finally:
+                await q.put(None)
+
+        async def gen():
+            task = asyncio.create_task(run())
+            try:
+                while True:
+                    item = await q.get()
+                    if item is None:
+                        break
+                    yield _sse(item)
+            finally:
+                await task
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
 
     @app.post("/agents/register")
     async def register(request: Request):

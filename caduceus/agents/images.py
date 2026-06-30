@@ -40,10 +40,20 @@ class ImageBuilder:
         return rc == 0
 
     async def ensure_image(self, tag: str = DEFAULT_TAG, hermes_version: str = DEFAULT_HERMES_VERSION,
-                           git_ref: str = DEFAULT_HERMES_GIT_REF) -> str:
-        """Build the image (if absent) and ensure it is in sbx's image store. Returns the tag."""
+                           git_ref: str = DEFAULT_HERMES_GIT_REF, progress=None) -> str:
+        """Build the image (if absent) and ensure it is in sbx's image store. Returns the tag.
+
+        `progress(phase, detail="")` (optional) is called for the slow steps."""
+        async def _emit(phase: str, detail: str = "") -> None:
+            if progress is None:
+                return
+            res = progress(phase, detail)
+            if hasattr(res, "__await__"):
+                await res
+
         if not await self.image_exists(tag):
             log.info("building hermes image %s (version %s, ref %s)", tag, hermes_version, git_ref)
+            await _emit("building image", "first run, may take a few minutes")
             proc = await asyncio.create_subprocess_exec(
                 self._docker, "build", "-t", tag,
                 "--build-arg", f"HERMES_VERSION={hermes_version}",
@@ -54,13 +64,15 @@ class ImageBuilder:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=1800.0)
             if proc.returncode != 0:
                 raise upstream_error(f"docker build failed: {out.decode('utf-8', 'replace')[-400:]}")
-        await self._ensure_in_sbx(tag)
+        await self._ensure_in_sbx(tag, _emit)
         return tag
 
-    async def _ensure_in_sbx(self, tag: str) -> None:
+    async def _ensure_in_sbx(self, tag: str, emit=None) -> None:
         """Bridge a host-Docker image into sbx's separate image store (Finding D)."""
         if await self._in_sbx(tag):
             return
+        if emit is not None:
+            await emit("loading image into sandbox runtime")
         tar = tempfile.mktemp(suffix=".tar")  # noqa: S306 — local, short-lived
         try:
             await self._run_checked(self._docker, "save", tag, "-o", tar, timeout=300.0,

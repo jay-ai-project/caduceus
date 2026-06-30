@@ -70,7 +70,8 @@ class FakeImageBuilder:
     async def image_exists(self, tag: str) -> bool:
         return True
 
-    async def ensure_image(self, tag: str = "caduceus/hermes:0.17.0", hermes_version: str = "0.17.0") -> str:
+    async def ensure_image(self, tag: str = "caduceus/hermes:0.17.0", hermes_version: str = "0.17.0",
+                           git_ref: str = "v2026.6.19", progress=None) -> str:
         self.built.append(tag)
         return tag
 
@@ -264,7 +265,12 @@ class FakeAgentService:
         self._agents = {a.name: a for a in (agents or [])}
         self.removed: list[str] = []
 
-    async def create(self, name):
+    async def create(self, name, progress=None):
+        if progress is not None:
+            for phase in ("preparing image", "creating sandbox", "configuring agent", "verifying health"):
+                res = progress(phase)
+                if hasattr(res, "__await__"):
+                    await res
         rec = make_agent(name=name, lifecycle=Lifecycle.running)
         self._agents[name] = rec
         return rec
@@ -349,8 +355,12 @@ class FakeControlAPIClient:
         return self._status
 
     def create_agent(self, spec):
+        # mirrors ControlAPIClient.create_agent: yields SSE progress then a done event
+        if self._raise:
+            raise self._raise
+        yield {"event": "progress", "phase": "creating sandbox", "detail": ""}
         v = AgentView(name=spec.name, kind="local", lifecycle="running", health="healthy")
-        return v
+        yield {"event": "done", "agent": v.to_dict()}
 
     def register_agent(self, spec):
         return {"agent": AgentView(name=spec.name, kind="remote", lifecycle="registered", health="unknown").to_dict(),
