@@ -115,17 +115,28 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - **Core enabler (cross-cutting U3)**: extend ChatEvent (`transport/events.py`) + AcpTransport (`transport/acp.py`) to surface thinking (`agent_thought_chunk`) + tool calls (`tool_call`/`tool_call_update`), currently dropped — preserving terminal-event invariant + CLI compat.
   - Extensions inherited: Security=No, Resiliency=Yes/full, PBT=Yes/full.
   - Artifacts: requirements/web-ui-verification-questions.md, requirements/web-ui-requirements.md.
-- [x] Workflow Planning (U5) — complete, **awaiting approval gate**
+- [x] Workflow Planning (U5) — complete & approved
   - Stages to EXECUTE: Functional Design (light) → Code Generation → Build & Test.
   - Stages to SKIP: Application Design, Units Generation (single small unit), NFR Req/Design, Infrastructure Design (all inherit U1–U4 + shared-infrastructure.md).
   - Risk: Low–Medium (cross-cutting U3 event-path change must preserve terminal invariant + CLI compat). Rollback: Easy (additive).
   - Artifacts: plans/web-ui-execution-plan.md.
 
+### 🟢 CONSTRUCTION (U5)
+- [x] **U5 Functional Design** (light) — complete, **awaiting approval gate**
+  - Decisions (made inline, adaptive — no separate question round; requirements were specific):
+    - Event model: extend `ChatEventType` with `thinking` + `tool_call`; add optional `meta` dict to `ChatEvent` (ToolCallMeta: id/name/status/input/output). `normalize_stream` unchanged (terminal invariant preserved). Reuse `message` w/ meta role for replayed history.
+    - ACP mapping: `agent_thought_chunk`→thinking, `tool_call`/`tool_call_update`→tool_call (merge by toolCallId), defensive parse, truncate input/output 4 KiB.
+    - History (FR-W10): `ChatService.history()` via dedicated short-lived transport doing session/load replay capture; best-effort, local-only, text-only.
+    - Serving: `caduceus/webui/` static assets mounted `/ui` on Control API; `GET /`→redirect; new `GET /agents/{name}/history` JSON.
+    - Frontend: vanilla no-build SPA (Header / Sidebar dashboard / ChatView w/ collapsible thinking + tool cards).
+  - Artifacts: construction/u5-webui/functional-design/{domain-entities,business-logic-model,business-rules,frontend-components}.md
+  - PBT targets: PBT-W1 (terminal invariant under extended events), PBT-W2 (to_dict/from_dict round-trip w/ meta).
+
 ## Current Status
 - **Lifecycle Phase**: CONSTRUCTION (new cycle — U5 Web UI)
-- **Current Stage**: INCEPTION — Workflow Planning (U5) complete, awaiting approval.
-- **Next Stage**: Functional Design (U5, light)
-- **U5 Gateway Web UI**: 🔵 IN PROGRESS — Requirements done, awaiting gate.
+- **Current Stage**: CONSTRUCTION — U5 Functional Design complete, awaiting approval.
+- **Next Stage**: Code Generation (U5)
+- **U5 Gateway Web UI**: 🔵 IN PROGRESS — Requirements + Plan approved; Functional Design awaiting gate.
 - (prior) all 4 units + Build & Test: ✅ COMPLETE & APPROVED.
 - **U3 Transport & Chat**: ✅ COMPLETE & COMMITTED (design f244457, code d5e488b)
 - **U1 AI-Gateway**: ✅ COMPLETE (committed 8f25e5d)
