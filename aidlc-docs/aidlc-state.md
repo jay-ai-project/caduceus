@@ -93,15 +93,17 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - FD decisions: Q1=A transparent session recreate; **Q2=B no per-agent serialization (delegate to hermes serve, no turn-lock)**; Q3=A standard Supervisor defaults (30s sweep, 2 fails→restart, exp backoff 5/15/45s cap ~120s, 3 restart-fails→circuit open→failed, reset on manual start); Q4=A fail-fast on unhealthy/circuit-open; Q5=A protocol-handshake-only health (no LLM spend); Q6=A cooperative cancel.
   - Design artifacts: domain-entities.md, business-logic-model.md (7 PBT-01 props incl. stateful Supervisor PBT), business-rules.md (BR-C1..C16, BR-S1..S7); nfr-requirements + nfr-design + infrastructure-design (LIGHT). Supervision = local-only (inherits U2 BR-A10).
   - **Code**: `caduceus/transport/{events,base,serve,chat,supervisor}.py` + `pyproject.toml` (+websockets>=12) + tests (extended fakes, unit ×3, pbt). **81/81 tests pass** (U1 31 + U2 24 + U3 26) in `.venv`. ServeTransport `_WIRE_*` real impl unit-untested by design (protocol → Build & Test). New venv created this session (`.venv`).
-- [ ] **U4 CLI / Daemon / Config**: [x] FD · [x] NFR-Req · [x] NFR-Design · [x] Infra (complete — awaiting approval) · CodeGen
+- [x] **U4 CLI / Daemon / Config** ✅ COMPLETE: [x] FD · [x] NFR-Req · [x] NFR-Design · [x] Infra · [x] CodeGen
+  - FD: Q1 foreground+`-d`; Q2 hot-reload + `CHANGE_KIND_STRATEGY` seam; Q3 bootstrap+config.toml; Q4 read-back verify; Q5 `--soul`/`--soul-file`; Q6 human/`--json`+exit codes.
+  - **Code**: `caduceus/common/dto.py` + `caduceus/common/settings.py`(extended) + `caduceus/config/{editor,service}.py` + `caduceus/daemon/{lock,wiring,control_api,gateway}.py` + `caduceus/cli/{client,render,app}.py` + `caduceus/__main__.py` + pyproject(+typer, console script `caduceus`). **132/132 tests pass** (U1 31 + U2 24 + U3 26 + U4 51). Console script verified. Daemon serve/fork + real ControlAPIClient/sandbox-config-codec unit-untested by design → Build & Test.
   - FD decisions: Q1=foreground default + `-d` daemonize (single-instance pid/lock); **Q2=B hot-reload default + per-change-kind `ReloadStrategy` seam (CHANGE_KIND_STRATEGY) for future selective restart**; Q3=A interactive config bootstrap + `~/.caduceus/config.toml`; Q4=A apply→read-back+health verify; Q5=B `--soul`/`--soul-file` both (reject if both set); Q6=A human default + `--json` + exit codes 0/2/1.
   - Artifacts: domain-entities.md, business-logic-model.md (L1-L6 incl. composition-root wiring of U1/U2/U3; 6 PBT-01 props), business-rules.md (BR-G/E/L/O/W). U4 wires injected U3 callables + U1 token_lookup.
 - [ ] Build and Test (after all units)
 
 ## Current Status
 - **Lifecycle Phase**: CONSTRUCTION
-- **Current Stage**: CONSTRUCTION — U4 CLI / Daemon / Config → Infrastructure Design complete (awaiting approval)
-- **Next Stage**: U4 Code Generation (after Infra approval) — then Build & Test (final)
+- **Current Stage**: CONSTRUCTION — U4 Code Generation complete (U4 fully done; awaiting approval). **All 4 units complete.**
+- **Next Stage**: Build & Test (final CONSTRUCTION stage, after U4 approval)
 - **U3 Transport & Chat**: ✅ COMPLETE & COMMITTED (design f244457, code d5e488b)
 - **U1 AI-Gateway**: ✅ COMPLETE (committed 8f25e5d)
 - **U2 Registry & Provisioner**: ✅ COMPLETE & APPROVED (committed a9439df)

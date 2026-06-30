@@ -241,3 +241,143 @@ class AcpLikeFake(_ScriptedWireTransport):
         if e == "failed":
             return ChatEvent.error_(frame.get("reason", "err"), code=frame.get("code", "upstream_error"))
         return None
+
+
+# ===================================================================
+# U4 — CLI / Daemon / Config test doubles
+# ===================================================================
+from types import SimpleNamespace  # noqa: E402
+
+from caduceus.common.dto import (  # noqa: E402
+    AgentView,
+    ConfigResult,
+    ConfigSnapshot,
+    GatewayStatus,
+)
+
+
+class FakeAgentService:
+    def __init__(self, agents=None):
+        self._agents = {a.name: a for a in (agents or [])}
+        self.removed: list[str] = []
+
+    async def create(self, name):
+        rec = make_agent(name=name, lifecycle=Lifecycle.running)
+        self._agents[name] = rec
+        return rec
+
+    async def register(self, name, endpoint, auth=None):
+        rec = make_agent(name=name, kind=AgentKind.remote, lifecycle=Lifecycle.registered)
+        rec.endpoint = endpoint
+        self._agents[name] = rec
+        return rec, "guidance: point your remote hermes at the AI-Gateway"
+
+    async def list(self, deep=False):
+        return list(self._agents.values())
+
+    async def remove(self, name, force=False):
+        self.removed.append(name)
+        self._agents.pop(name, None)
+
+    async def stop(self, name):
+        self._agents[name].lifecycle = Lifecycle.stopped
+        return self._agents[name]
+
+    async def start(self, name):
+        self._agents[name].lifecycle = Lifecycle.running
+        return self._agents[name]
+
+
+class FakeChatService:
+    def __init__(self, script=None):
+        self.script = script if script is not None else [ChatEvent.token_("hi"), ChatEvent.done_()]
+
+    async def chat_stream(self, name, message):
+        for ev in self.script:
+            yield ev
+
+
+class FakeConfigService:
+    def __init__(self, snapshot=None, result=None, raise_on_set=None):
+        self.snapshot = snapshot or ConfigSnapshot(skills=["s1"])
+        self.result = result or ConfigResult(applied=["+skills ['s1']"], verified=True, reloaded=True)
+        self.raise_on_set = raise_on_set
+
+    async def get_config(self, name):
+        return self.snapshot
+
+    async def set_config(self, name, change):
+        if self.raise_on_set is not None:
+            raise self.raise_on_set
+        return self.result
+
+
+def build_fake_services(agents=None, chat_script=None, config_service=None):
+    reg = FakeRegistry(agents or [])
+    return SimpleNamespace(
+        settings=SimpleNamespace(control_bind="127.0.0.1:9700", aigateway_bind="172.17.0.1:9701"),
+        registry=reg,
+        agent_service=FakeAgentService(agents or []),
+        chat_service=FakeChatService(chat_script),
+        config_service=config_service or FakeConfigService(),
+        provisioner=FakeProvisioner(),
+    )
+
+
+class FakeControlAPIClient:
+    """Mirrors ControlAPIClient's surface for CLI tests (no HTTP)."""
+
+    def __init__(self, *, up=True, agents=None, chat_script=None,
+                 snapshot=None, result=None, raise_error=None, status=None):
+        self.up = up
+        self._agents = list(agents or [])
+        self._chat = chat_script if chat_script is not None else [ChatEvent.token_("hello"), ChatEvent.done_()]
+        self._snapshot = snapshot or ConfigSnapshot(skills=["s1"])
+        self._result = result or ConfigResult(applied=["+skills ['s1']"], verified=True)
+        self._raise = raise_error
+        self._status = status or GatewayStatus(running=True, pid=123, control_listener="127.0.0.1:9700",
+                                               aigateway_listener="172.17.0.1:9701", agent_count=len(agents or []),
+                                               version="0.1.0")
+
+    def is_daemon_up(self):
+        return self.up
+
+    def status(self):
+        return self._status
+
+    def create_agent(self, spec):
+        v = AgentView(name=spec.name, kind="local", lifecycle="running", health="healthy")
+        return v
+
+    def register_agent(self, spec):
+        return {"agent": AgentView(name=spec.name, kind="remote", lifecycle="registered", health="unknown").to_dict(),
+                "guidance": "point your remote hermes at the AI-Gateway"}
+
+    def list_agents(self, deep=False):
+        return list(self._agents)
+
+    def remove_agent(self, name, force=False):
+        if self._raise:
+            raise self._raise
+
+    def stop_agent(self, name):
+        return AgentView(name=name, kind="local", lifecycle="stopped", health="unknown")
+
+    def start_agent(self, name):
+        return AgentView(name=name, kind="local", lifecycle="running", health="healthy")
+
+    def get_config(self, name):
+        return self._snapshot
+
+    def set_config(self, name, change):
+        if self._raise:
+            raise self._raise
+        return self._result
+
+    def chat(self, name, message):
+        for ev in self._chat:
+            yield ev
+
+    def logs(self, name, follow=False):
+        yield "log line 1"
+        yield "log line 2"
