@@ -181,6 +181,9 @@ class Supervisor:
         except Exception as exc:  # noqa: BLE001 — probe failure == unhealthy
             log.debug("supervisor: health probe of %s raised: %s", rec.name, exc)
             return False
+        # Cache the snapshot so cheap (no-probe) listings — e.g. the Web UI
+        # dashboard poll — can show fresh health without re-handshaking (NFR-W3).
+        rec.last_health = hs
         return hs.level == HealthLevel.healthy
 
     def state_of(self, name: str) -> Optional[AgentSupervisionState]:

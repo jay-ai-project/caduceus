@@ -124,7 +124,13 @@ class AgentService:
         return rec, remote_setup_guidance(self.aigateway_url, token, self.model_alias)
 
     # ---- list (reconcile + health) ----------------------------------
-    async def list(self, deep: bool = False) -> list[AgentRecord]:
+    async def list(self, deep: bool = False, probe: bool = True) -> list[AgentRecord]:
+        """Reconcile lifecycle from the sandbox runtime and (optionally) probe health.
+
+        `probe=False` skips the per-agent health handshake and keeps the cached
+        `last_health` (refreshed in the background by the Supervisor sweep) — used
+        by the Web UI dashboard poll so it stays responsive (handshakes are slow).
+        """
         result: list[AgentRecord] = []
         for rec in self.registry.list():
             if rec.kind == AgentKind.local and rec.sandbox_name:
@@ -135,7 +141,8 @@ class AgentService:
                     rec.lifecycle = Lifecycle.stopped
                 elif status == "running" and rec.lifecycle == Lifecycle.stopped:
                     rec.lifecycle = Lifecycle.running
-            rec.last_health = await self.health.check(rec, deep=deep)
+            if probe:
+                rec.last_health = await self.health.check(rec, deep=deep)
             result.append(rec)
         return result
 

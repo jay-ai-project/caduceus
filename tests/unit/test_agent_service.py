@@ -84,3 +84,28 @@ async def test_stop_start_local(tmp_path):
     await svc.create("a")
     assert (await svc.stop("a")).lifecycle == Lifecycle.stopped
     assert (await svc.start("a")).lifecycle == Lifecycle.running
+
+
+# ---- U5: probe=false skips the health handshake (dashboard poll) ----
+class _CountingHealth:
+    def __init__(self):
+        self.calls = 0
+
+    async def check(self, rec, deep=False):
+        self.calls += 1
+        from caduceus.common.models import HealthLevel, HealthStatus
+        return HealthStatus(HealthLevel.healthy, shallow=True)
+
+
+async def test_list_probe_false_skips_health_check(tmp_path):
+    reg = Registry(tmp_path / "state.json"); reg.load()
+    hc = _CountingHealth()
+    svc = AgentService(reg, FakeProvisioner(), FakeImageBuilder(), hc, AIGW)
+    await svc.create("a1")
+    create_calls = hc.calls  # create does one best-effort probe
+
+    await svc.list(probe=False)
+    assert hc.calls == create_calls          # no extra probe on cheap list
+
+    await svc.list(probe=True)
+    assert hc.calls == create_calls + 1      # one probe per agent when requested

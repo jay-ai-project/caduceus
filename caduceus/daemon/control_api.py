@@ -109,9 +109,10 @@ def build_control_app(services, status_provider=None) -> FastAPI:
             return _err(exc)
 
     @app.get("/agents")
-    async def list_agents(deep: bool = False):
+    async def list_agents(deep: bool = False, probe: bool = True):
+        # `probe=false` → cheap listing (cached health) for the Web UI dashboard poll.
         try:
-            recs = await agents.list(deep=deep)
+            recs = await agents.list(deep=deep, probe=probe)
             return [AgentView.from_record(r, r.last_health).to_dict() for r in recs]
         except Exception as exc:  # noqa: BLE001
             return _err(exc)

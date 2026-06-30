@@ -290,7 +290,7 @@ class FakeAgentService:
         self._agents[name] = rec
         return rec, "guidance: point your remote hermes at the AI-Gateway"
 
-    async def list(self, deep=False):
+    async def list(self, deep=False, probe=True):
         return list(self._agents.values())
 
     async def remove(self, name, force=False):

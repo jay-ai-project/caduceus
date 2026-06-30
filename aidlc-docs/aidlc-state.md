@@ -139,11 +139,18 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - **173 tests pass** (was 154; +19). Wheel build verified to include webui assets (force-include removed — `packages=["caduceus"]` already ships them).
   - Artifacts: construction/u5-webui/code/code-summary.md; plan construction/plans/u5-webui-code-generation-plan.md (all [x]).
 
+- [x] **U5 Build & Test** — complete, **awaiting approval gate**
+  - Build ✅ (editable + wheel incl. webui assets). Tests ✅ **174/174** (154 +20).
+  - Live integration ✅ (Docker+sbx+hermes 0.17.0+llama-swap): `/`→`/ui/` redirect, `/ui/` index+assets, BR-W1 (no UI on :9701 → 404), local provision, **streaming chat with thinking** (107 thinking + 162 token + 1 done; terminal invariant holds live), **history** 4-turn replay via session/load, unknown-agent history 404.
+  - **Defect K fixed**: dashboard `/agents` ran a per-agent ACP health handshake per poll (~6s, spawns processes). Added `?probe=false` (UI uses it) → cached health; Supervisor sweep now caches `last_health`; UI poll 5s. CLI `agent ls` unchanged (probe=true).
+  - Tool-call live invocation not forced (gemma prompts produced thinking, no tool call); ACP→event mapping unit-verified.
+  - Artifacts: construction/build-and-test/web-ui-build-and-test-summary.md.
+
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (new cycle — U5 Web UI)
-- **Current Stage**: CONSTRUCTION — U5 Code Generation complete, awaiting approval.
-- **Next Stage**: Build & Test (U5)
-- **U5 Gateway Web UI**: 🔵 IN PROGRESS — Requirements + Plan + Functional Design approved; Code Generation awaiting gate. 173/173 tests pass.
+- **Lifecycle Phase**: CONSTRUCTION (U5 Web UI) — complete pending approval.
+- **Current Stage**: CONSTRUCTION — U5 Build & Test complete, awaiting approval.
+- **Next Stage**: — (Operations placeholder). U5 done after approval.
+- **U5 Gateway Web UI**: 🟢 COMPLETE pending gate — Requirements + Plan + FD + CodeGen approved; Build & Test done. 174/174 tests; live verified.
 - (prior) all 4 units + Build & Test: ✅ COMPLETE & APPROVED.
 - **U3 Transport & Chat**: ✅ COMPLETE & COMMITTED (design f244457, code d5e488b)
 - **U1 AI-Gateway**: ✅ COMPLETE (committed 8f25e5d)

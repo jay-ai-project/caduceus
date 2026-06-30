@@ -3,7 +3,7 @@
  */
 "use strict";
 
-const POLL_MS = 3000;
+const POLL_MS = 5000;  // sandbox-status reconcile costs ~1 subprocess/agent; keep polls non-overlapping
 const TOOL_FIELD_HINT = "(truncated)";
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -66,7 +66,7 @@ async function poll() {
   try {
     const [status, agents] = await Promise.all([
       fetchJSON("/status"),
-      fetchJSON("/agents"),
+      fetchJSON("/agents?probe=false"),  // cheap poll; health refreshed by supervisor
     ]);
     renderHeader(status, true);
     state.agents = agents;
