@@ -89,12 +89,15 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - Infra: **slim image (Q1=A)**; provisioning sequence; `AgentRecord.serve_auth`; Build-time validation items flagged.
   - **Code**: `caduceus/common/models.py` + `caduceus/agents/{names,tokens,hermes_config,registry,provisioner,images,health,service}.py` + `images/hermes/Dockerfile` + tests (unit + stateful PBT). **55/55 tests pass** (U1 31 + U2 24). Stateful PBT drives real AgentService vs reference model.
   - FD decisions: name→`cad-<name>` (Q1=A); remote = token+guidance, read-only config (Q2=A); **remote start/stop not possible (user-confirmed, BR-A10)**. Stateful registry PBT planned.
-- [ ] **U3 Transport & Chat**: FD · NFR-Req · NFR-Design · Infra · CodeGen
+- [ ] **U3 Transport & Chat**: [x] FD · [x] NFR-Req · [x] NFR-Design · [x] Infra (LIGHT, complete — awaiting approval) · CodeGen
+  - FD decisions: Q1=A transparent session recreate; **Q2=B no per-agent serialization (delegate to hermes serve, no turn-lock)**; Q3=A standard Supervisor defaults (30s sweep, 2 fails→restart, exp backoff 5/15/45s cap ~120s, 3 restart-fails→circuit open→failed, reset on manual start); Q4=A fail-fast on unhealthy/circuit-open; Q5=A protocol-handshake-only health (no LLM spend); Q6=A cooperative cancel.
+  - Artifacts: domain-entities.md, business-logic-model.md (7 PBT-01 props incl. stateful Supervisor PBT), business-rules.md (BR-C1..C16, BR-S1..S7). Supervision = local-only (inherits U2 BR-A10).
 - [ ] **U4 CLI / Daemon / Config**: FD · NFR-Req · NFR-Design · Infra · CodeGen
 - [ ] Build and Test (after all units)
 
 ## Current Status
-- **Lifecycle Phase**: INCEPTION → (about to enter CONSTRUCTION)
-- **Current Stage**: CONSTRUCTION — U2 Code Generation complete (U2 fully done; awaiting approval)
-- **Next Stage**: U3 Transport & Chat → Functional Design
+- **Lifecycle Phase**: CONSTRUCTION
+- **Current Stage**: CONSTRUCTION — U3 Transport & Chat → Infrastructure Design (LIGHT) complete (awaiting approval)
+- **Next Stage**: U3 Code Generation (after Infra approval)
 - **U1 AI-Gateway**: ✅ COMPLETE (committed 8f25e5d)
+- **U2 Registry & Provisioner**: ✅ COMPLETE & APPROVED (committed a9439df)
