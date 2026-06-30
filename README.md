@@ -168,8 +168,7 @@ generated requirements, design, and per-unit artifacts live under [`aidlc-docs/`
 
 ## License
 
-No license has been chosen yet. **Add a `LICENSE` file** (e.g. MIT or Apache-2.0) before
-publishing publicly.
+See [LICENSE](LICENSE).
 
 ## Acknowledgements
 
