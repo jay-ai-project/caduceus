@@ -3,7 +3,7 @@
  */
 "use strict";
 
-const POLL_MS = 5000;  // sandbox-status reconcile costs ~1 subprocess/agent; keep polls non-overlapping
+const POLL_MS = 3000;  // cheap: /status + /agents?probe=false are registry-only reads
 const TOOL_FIELD_HINT = "(truncated)";
 const $ = (sel, root = document) => root.querySelector(sel);
 
@@ -62,19 +62,20 @@ async function* sseEvents(resp) {
 }
 
 // ================= Dashboard =================
-async function poll() {
-  try {
-    const [status, agents] = await Promise.all([
-      fetchJSON("/status"),
-      fetchJSON("/agents?probe=false"),  // cheap poll; health refreshed by supervisor
-    ]);
-    renderHeader(status, true);
-    state.agents = agents;
-    renderAgents();
-  } catch (_) {
-    renderHeader(null, false);
-  }
+// Status and agents are fetched independently so each paints the instant it
+// returns (neither blocks the other). Both are cheap/instant: `/status` is a
+// registry read; `/agents?probe=false` is a registry-only projection.
+async function pollStatus() {
+  try { renderHeader(await fetchJSON("/status"), true); }
+  catch (_) { renderHeader(null, false); }
 }
+
+async function pollAgents() {
+  try { state.agents = await fetchJSON("/agents?probe=false"); renderAgents(); }
+  catch (_) { /* transient; header reflects daemon reachability via pollStatus */ }
+}
+
+function poll() { pollStatus(); pollAgents(); }
 
 function renderHeader(status, up) {
   const elS = $("#gw-status");
@@ -350,8 +351,10 @@ function init() {
   });
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; });
 
-  poll();
+  poll();                      // fire immediately on load (no initial delay)
   setInterval(poll, POLL_MS);
 }
 
-document.addEventListener("DOMContentLoaded", init);
+// run now if the DOM is already parsed (script is at end of <body>), else wait
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();

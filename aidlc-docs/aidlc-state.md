@@ -142,7 +142,7 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
 - [x] **U5 Build & Test** — complete, **awaiting approval gate**
   - Build ✅ (editable + wheel incl. webui assets). Tests ✅ **174/174** (154 +20).
   - Live integration ✅ (Docker+sbx+hermes 0.17.0+llama-swap): `/`→`/ui/` redirect, `/ui/` index+assets, BR-W1 (no UI on :9701 → 404), local provision, **streaming chat with thinking** (107 thinking + 162 token + 1 done; terminal invariant holds live), **history** 4-turn replay via session/load, unknown-agent history 404.
-  - **Defect K fixed**: dashboard `/agents` ran a per-agent ACP health handshake per poll (~6s, spawns processes). Added `?probe=false` (UI uses it) → cached health; Supervisor sweep now caches `last_health`; UI poll 5s. CLI `agent ls` unchanged (probe=true).
+  - **Defect K fixed** (live: 6.1s→~1ms): dashboard `/agents` ran a per-agent `sbx` reconcile + ACP health handshake every call (~6s/1 agent, ~12s/2). `?probe=false` (UI) is now an instant registry-only projection; Supervisor sweep caches `last_health`; frontend fetches `/status` + `/agents` independently and fires immediately on load; poll 3s. CLI `agent ls` unchanged (probe=true authoritative). Trade-off: health supervisor-refreshed (~30s), may be stale for one sweep after restart.
   - Tool-call live invocation not forced (gemma prompts produced thinking, no tool call); ACP→event mapping unit-verified.
   - Artifacts: construction/build-and-test/web-ui-build-and-test-summary.md.
 

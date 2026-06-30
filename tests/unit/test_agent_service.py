@@ -100,12 +100,16 @@ class _CountingHealth:
 async def test_list_probe_false_skips_health_check(tmp_path):
     reg = Registry(tmp_path / "state.json"); reg.load()
     hc = _CountingHealth()
-    svc = AgentService(reg, FakeProvisioner(), FakeImageBuilder(), hc, AIGW)
+    prov = FakeProvisioner()
+    svc = AgentService(reg, prov, FakeImageBuilder(), hc, AIGW)
     await svc.create("a1")
     create_calls = hc.calls  # create does one best-effort probe
 
+    prov.calls.clear()
     await svc.list(probe=False)
-    assert hc.calls == create_calls          # no extra probe on cheap list
+    assert hc.calls == create_calls          # no extra health handshake on cheap list
+    assert "status" not in prov.calls        # and no sbx reconcile — registry-only (instant)
 
     await svc.list(probe=True)
     assert hc.calls == create_calls + 1      # one probe per agent when requested
+    assert "status" in prov.calls            # full reconcile on the authoritative path

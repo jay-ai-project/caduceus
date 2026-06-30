@@ -57,6 +57,7 @@ class FakeProvisioner:
         self.sandboxes.pop(sandbox, None)
 
     async def status(self, sandbox: str) -> str:
+        self.calls.append("status")
         return self.sandboxes.get(sandbox, "missing")
 
     async def logs(self, sandbox: str, follow: bool = False) -> AsyncIterator[str]:

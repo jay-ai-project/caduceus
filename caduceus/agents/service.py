@@ -125,23 +125,29 @@ class AgentService:
 
     # ---- list (reconcile + health) ----------------------------------
     async def list(self, deep: bool = False, probe: bool = True) -> list[AgentRecord]:
-        """Reconcile lifecycle from the sandbox runtime and (optionally) probe health.
+        """Project agent records, optionally probing external state.
 
-        `probe=False` skips the per-agent health handshake and keeps the cached
-        `last_health` (refreshed in the background by the Supervisor sweep) — used
-        by the Web UI dashboard poll so it stays responsive (handshakes are slow).
+        `probe=True` (CLI `agent ls`): reconcile lifecycle from the sandbox runtime
+        (`sbx`) **and** run a fresh per-agent health handshake — authoritative but
+        slow (each handshake spawns `sbx exec hermes acp`).
+
+        `probe=False` (Web UI dashboard poll): a cheap, **instant** registry-only
+        projection — no `sbx`, no handshake. Lifecycle + cached `last_health` come
+        from the registry, kept fresh in the background by the Supervisor sweep
+        (which caches health and marks crashed agents failed) and by UI-initiated
+        actions that refresh after they run. This keeps page load / polling snappy.
         """
         result: list[AgentRecord] = []
         for rec in self.registry.list():
-            if rec.kind == AgentKind.local and rec.sandbox_name:
-                status = await self.provisioner.status(rec.sandbox_name)
-                if status == "missing":
-                    rec.lifecycle = Lifecycle.failed
-                elif status == "stopped":
-                    rec.lifecycle = Lifecycle.stopped
-                elif status == "running" and rec.lifecycle == Lifecycle.stopped:
-                    rec.lifecycle = Lifecycle.running
             if probe:
+                if rec.kind == AgentKind.local and rec.sandbox_name:
+                    status = await self.provisioner.status(rec.sandbox_name)
+                    if status == "missing":
+                        rec.lifecycle = Lifecycle.failed
+                    elif status == "stopped":
+                        rec.lifecycle = Lifecycle.stopped
+                    elif status == "running" and rec.lifecycle == Lifecycle.stopped:
+                        rec.lifecycle = Lifecycle.running
                 rec.last_health = await self.health.check(rec, deep=deep)
             result.append(rec)
         return result

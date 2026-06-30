@@ -9,7 +9,7 @@
 ## Test Execution Summary
 
 ### Unit + Property-Based Tests
-- **Total**: **174 passed** (was 154 at end of U4 cycle; **+20** for U5), 0 failures, ~4.4s.
+- **Total**: **174 passed** (was 154 at end of U4 cycle; **+20** for U5), 0 failures, ~4.5s.
 - New/extended coverage:
   - Event model: thinking/tool_call/message round-trip incl. `meta`; `meta` omitted when None; thinking/tool non-terminal; normalize_stream passes them through with one terminal.
   - PBT-W1: terminal-event invariant holds with arbitrary token/thinking/tool_call/message sequences. PBT-W2: tool_call round-trip with populated `meta`.
@@ -36,8 +36,13 @@ Daemon started (`caduceus gateway start`), real local agent `webui-test` provisi
 **Tool-call display**: the ACP→event mapping is unit-verified (thought + tool_call + tool_call_update → events with meta). A *live* tool invocation depends on the agent having tools enabled and a prompt that triggers one; the gemma test prompts produced thinking but no tool call, so live tool rendering was not forced (mapping covered by unit tests).
 
 ## Defects found & fixed (during U5 integration)
-- **K — dashboard poll was slow/dangerous**: `GET /agents` ran a per-agent ACP health **handshake** every call (~6 s for 1 agent; spawns `sbx exec hermes acp` per poll). For a 3 s-polling dashboard this piled up processes. **Fix**: `GET /agents?probe=false` (used by the UI) skips the handshake and returns cached `last_health`; the **Supervisor sweep now caches `last_health`** so the cached value stays fresh in the background. CLI `agent ls` keeps `probe=true` (unchanged). UI poll interval raised to 5 s to keep the sbx-status reconcile non-overlapping.
-  - *Note*: a transient `stopped/unhealthy` can appear in a `probe=true` listing run **concurrently** with an active chat (two acp spawns contend); the dashboard (probe=false) is unaffected. Pre-existing CLI behavior, not a U5 regression.
+- **K — dashboard load/poll was slow**: `GET /agents` ran, per agent, a `sbx ls` lifecycle reconcile (~3 s) **and** an ACP health **handshake** (~3 s, spawns `sbx exec hermes acp`) on every call — ~6 s for 1 agent, ~12 s for 2 — so the dashboard's first paint and every poll were slow (and spawned processes each time). The user reported the agent list taking seconds to appear on page load.
+  **Fix** (verified live: **6.1 s → ~1 ms**):
+  - `GET /agents?probe=false` (used by the Web UI) is now an **instant, registry-only projection** — no `sbx`, no handshake.
+  - The **Supervisor sweep caches `last_health`** (and already marks crashed agents failed), so the cheap listing shows fresh lifecycle + health maintained in the background; UI-initiated actions refresh immediately after they run.
+  - The frontend fetches `/status` and `/agents` **independently** (no `Promise.all` coupling) and fires the first poll immediately on load, so each paints the instant it returns. Poll interval kept at 3 s (now negligible cost).
+  - CLI `agent ls` keeps `probe=true` (authoritative full reconcile + handshake) — unchanged.
+  - *Trade-off*: health is supervisor-refreshed (~30 s sweep), so for up to one sweep after a daemon restart a value may be stale/`unknown` (observed: a freshly-booted agent showed `unhealthy` for one sweep, then self-corrected to `healthy`). Acceptable for a personal local tool; chat still applies a fail-fast health gate. A `probe=true` listing run concurrently with an active chat can also momentarily show `unhealthy` (two acp spawns contend) — pre-existing CLI behavior, and the dashboard (probe=false) is unaffected.
 
 ## Overall Status
 - **Build**: ✅ Success (incl. wheel with assets).
