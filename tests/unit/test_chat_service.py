@@ -1,0 +1,133 @@
+"""U3 — ChatService: fail-fast gate, session continuity, relay, cancel."""
+
+from __future__ import annotations
+
+from caduceus.common.models import AgentKind, HealthLevel, HealthStatus, Lifecycle
+from caduceus.transport.events import ChatEvent, ChatEventType
+from caduceus.transport.chat import ChatService
+
+from tests.fakes import FakeRegistry, FakeTransport, make_agent
+
+
+async def _collect(agen):
+    return [ev async for ev in agen]
+
+
+def _healthy(rec, deep):  # health_check callable
+    async def _():
+        return HealthStatus(HealthLevel.healthy, shallow=True)
+
+    return _()
+
+
+async def test_unknown_agent_errors():
+    cs = ChatService(FakeRegistry(), health_check=_healthy)
+    out = await _collect(cs.chat_stream("nope", "hi"))
+    assert len(out) == 1 and out[0].type == ChatEventType.error and out[0].code == "agent_not_found"
+
+
+async def test_fail_fast_on_failed_lifecycle():
+    rec = make_agent(lifecycle=Lifecycle.failed)
+    cs = ChatService(FakeRegistry([rec]), health_check=_healthy, transport_factory=lambda r: FakeTransport(r))
+    out = await _collect(cs.chat_stream("a1", "hi"))
+    assert [e.type for e in out] == [ChatEventType.error]
+    assert out[0].code == "agent_unavailable"
+
+
+async def test_fail_fast_on_unhealthy():
+    rec = make_agent(lifecycle=Lifecycle.running)
+
+    def unhealthy(r, deep):
+        async def _():
+            return HealthStatus(HealthLevel.unhealthy, shallow=False, detail="endpoint unreachable")
+        return _()
+
+    cs = ChatService(FakeRegistry([rec]), health_check=unhealthy, transport_factory=lambda r: FakeTransport(r))
+    out = await _collect(cs.chat_stream("a1", "hi"))
+    assert [e.type for e in out] == [ChatEventType.error]
+    assert out[0].code == "agent_unavailable"
+    # zero token events on fail-fast (PBT-U3-5 spirit)
+    assert not any(e.type == ChatEventType.token for e in out)
+
+
+async def test_creating_agent_gets_one_retry():
+    rec = make_agent(lifecycle=Lifecycle.creating)
+    calls = {"n": 0}
+
+    def flaky(r, deep):
+        async def _():
+            calls["n"] += 1
+            ok = calls["n"] >= 2  # first probe unhealthy, second healthy
+            return HealthStatus(HealthLevel.healthy if ok else HealthLevel.unhealthy, shallow=ok)
+        return _()
+
+    cs = ChatService(
+        FakeRegistry([rec]), health_check=flaky,
+        transport_factory=lambda r: FakeTransport(r, script=[ChatEvent.token_("ok"), ChatEvent.done_()]),
+        creating_retry_delay=0.0,
+    )
+    out = await _collect(cs.chat_stream("a1", "hi"))
+    assert calls["n"] == 2
+    assert [e.type for e in out] == [ChatEventType.token, ChatEventType.done]
+
+
+async def test_happy_relays_and_persists_new_session():
+    rec = make_agent(session_id=None)
+    reg = FakeRegistry([rec])
+    ft = FakeTransport(rec, script=[ChatEvent.token_("he"), ChatEvent.token_("llo"), ChatEvent.done_()],
+                       new_session_id="sess-1")
+    cs = ChatService(reg, health_check=_healthy, transport_factory=lambda r: ft)
+    out = await _collect(cs.chat_stream("a1", "hi"))
+    assert [e.data for e in out if e.type == ChatEventType.token] == ["he", "llo"]
+    assert reg.sessions_set == [("a1", "sess-1")]
+    assert ft.closed is True
+
+
+async def test_resume_existing_session_not_repersisted():
+    rec = make_agent(session_id="s-keep")
+    reg = FakeRegistry([rec])
+    ft = FakeTransport(rec, script=[ChatEvent.token_("x"), ChatEvent.done_()])
+    cs = ChatService(reg, health_check=_healthy, transport_factory=lambda r: ft)
+    await _collect(cs.chat_stream("a1", "hi"))
+    assert reg.sessions_set == []  # unchanged → no write
+    assert ft.session_id == "s-keep"
+
+
+async def test_transparent_recreate_persists_new_session():
+    rec = make_agent(session_id="gone")
+    reg = FakeRegistry([rec])
+    ft = FakeTransport(rec, script=[ChatEvent.token_("x"), ChatEvent.done_()],
+                       reject_session="gone", new_session_id="fresh")
+    cs = ChatService(reg, health_check=_healthy, transport_factory=lambda r: ft)
+    await _collect(cs.chat_stream("a1", "hi"))
+    assert reg.sessions_set == [("a1", "fresh")]
+
+
+async def test_open_failure_is_fail_fast():
+    rec = make_agent()
+    ft = FakeTransport(rec, fail_open=True)
+    cs = ChatService(FakeRegistry([rec]), health_check=_healthy, transport_factory=lambda r: ft)
+    out = await _collect(cs.chat_stream("a1", "hi"))
+    assert [e.type for e in out] == [ChatEventType.error]
+    assert out[0].code == "agent_unavailable"
+
+
+async def test_cooperative_cancel_preserves_session():
+    rec = make_agent(session_id="s1")
+    reg = FakeRegistry([rec])
+    ft = FakeTransport(
+        rec,
+        script=[ChatEvent.token_("a"), ChatEvent.token_("b"), ChatEvent.token_("c"), ChatEvent.done_()],
+    )
+    cs = ChatService(reg, health_check=_healthy, transport_factory=lambda r: ft)
+    agen = cs.chat_stream("a1", "hi")
+
+    first = await agen.__anext__()
+    assert first == ChatEvent.token_("a")
+    ft.request_cancel()
+    second = await agen.__anext__()
+    assert second.type == ChatEventType.done and second.code == "cancelled"
+    await agen.aclose()
+
+    assert ft.cancel_sent is True
+    assert reg.sessions_set == []  # session preserved (s1 unchanged)

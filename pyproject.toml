@@ -12,7 +12,8 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "httpx>=0.27",
     "pydantic>=2",
-    # typer (CLI) and websockets (transport) are added in U4/U3.
+    "websockets>=12",  # U3 ServeTransport (hermes serve JSON-RPC/WS); lazy-imported
+    # typer (CLI) is added in U4.
 ]
 
 [project.optional-dependencies]
