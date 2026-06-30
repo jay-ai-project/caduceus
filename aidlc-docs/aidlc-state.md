@@ -146,10 +146,32 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - Tool-call live invocation not forced (test prompts produced thinking, no tool call); ACP→event mapping unit-verified.
   - Artifacts: construction/build-and-test/web-ui-build-and-test-summary.md.
 
+## 🔵 NEW CYCLE — U6 Gateway Config Command (started 2026-07-01)
+- **Trigger**: user request — add `caduceus gateway config` to view/change `upstream_base_url` and `default_model`.
+- **Phase**: INCEPTION — Requirements Analysis.
+- [x] Requirements Analysis (U6) — complete & **APPROVED**
+  - Answers (all recommended A): Q1=A hot-apply live + persist; Q2=A dedicated `--upstream-url`/`--model` + `--get`/`--json`; Q3=A only the two keys; Q4=A works daemon up or down (down → edit config.toml directly); Q5=A light validation (non-empty + URL shape, no network); Q6=A extensions inherited.
+  - Extensions inherited: Security=No, Resiliency=Yes/full, PBT=Yes/full.
+  - Scope touches: `cli/app.py`, `cli/client.py`, `common/settings.py`, `daemon/control_api.py`, `daemon/wiring.py`, AI-Gateway upstream/routing seam (live hot-apply).
+  - Artifacts: requirements/u6-gateway-config-verification-questions.md, requirements/u6-gateway-config-requirements.md.
+- [x] Workflow Planning (U6) — complete & **APPROVED**
+  - Stages to EXECUTE: Functional Design (light) → Code Generation → Build & Test.
+  - Stages to SKIP: Application Design, Units Generation, NFR Requirements, NFR Design, Infrastructure Design (all inherit U1–U4 + shared-infrastructure.md).
+  - Risk: Low–Medium (live hot-apply of UpstreamClient/routing without restart). Rollback: Easy (additive command + route).
+  - Artifacts: plans/u6-gateway-config-execution-plan.md.
+
+### 🟢 CONSTRUCTION (U6)
+- [x] **U6 Functional Design** (light) — complete, **awaiting approval gate**
+  - Confirmed hot-apply feasibility: `UpstreamClient._url()` + `routing.build_route()` read the shared `Settings` live → daemon mutates `Services.settings` in place, no restart.
+  - Decisions: GatewayConfigView (secret-free, source live/file, env_override warn) + GatewayConfigChange in common/dto.py; atomic key-preserving `config.toml` read-modify-write (temp+os.replace, 600); additive Control-API `GET`/`POST /gateway/config`; CLI `gateway config --get/--json/--upstream-url/--model` works daemon up or down.
+  - Rules BR-GC1..GC11; PBT-GC1..GC3 (URL validation totality, config round-trip + key preservation, change idempotence).
+  - Artifacts: construction/u6-gateway-config/functional-design/{domain-entities,business-logic-model,business-rules}.md
+
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (U5 Web UI) — complete pending approval.
-- **Current Stage**: CONSTRUCTION — U5 Build & Test complete, awaiting approval.
-- **Next Stage**: — (Operations placeholder). U5 done after approval.
+- **Lifecycle Phase**: CONSTRUCTION (U6 Gateway Config) — Functional Design complete pending approval.
+- **Current Stage**: CONSTRUCTION — U6 Functional Design (light) complete, awaiting approval.
+- **Next Stage**: CONSTRUCTION — U6 Code Generation after approval.
+- (prior) U5 Gateway Web UI: 🟢 COMPLETE (committed); U1–U4 + Build & Test: ✅ COMPLETE & APPROVED.
 - **U5 Gateway Web UI**: 🟢 COMPLETE pending gate — Requirements + Plan + FD + CodeGen approved; Build & Test done. 174/174 tests; live verified.
 - (prior) all 4 units + Build & Test: ✅ COMPLETE & APPROVED.
 - **U3 Transport & Chat**: ✅ COMPLETE & COMMITTED (design f244457, code d5e488b)
