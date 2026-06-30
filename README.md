@@ -5,6 +5,7 @@
 
 <p>
   <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue" />
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green" />
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-orange" />
 </p>
 
@@ -168,7 +169,7 @@ generated requirements, design, and per-unit artifacts live under [`aidlc-docs/`
 
 ## License
 
-See [LICENSE](LICENSE).
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgements
 
