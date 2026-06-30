@@ -26,7 +26,7 @@ complete._
 - **Coverage stance**: real protocol/IO seams (daemon serve/fork, real Control-API HTTP client, real `sbx`/`hermes acp`) are exercised in integration (all PASS), not the unit suite.
 - **Status**: ✅ **Pass**
 
-### Integration Tests — EXECUTED on host (Docker 29.4.0 + sbx + hermes 0.17.0 + llama-swap)
+### Integration Tests — EXECUTED on host (Docker 29.4.0 + sbx + hermes 0.17.0 + Ollama)
 All 6 scenarios executed end-to-end against the live host and **PASS**. Integration
 surfaced 10 real defects (all fixed); the largest was that `hermes serve` requires a
 full Node web build, which prompted an approved **transport pivot to `hermes acp`
@@ -38,7 +38,7 @@ AI-Gateway → LLM returned "PONG") and then via the production code path.
 | 1. CLI ↔ daemon Control API | ✅ **PASS** | `gateway status` / `agent ls` (human + `--json`), exit 0; real `ControlAPIClient` loopback |
 | 2. AI-Gateway auth/proxy | ✅ **PASS** | no-auth / bogus bearer → `401` OpenAI error shape; valid agent token → `/v1/chat/completions` 200 |
 | 3. Provision local agent | ✅ **PASS** | `agent create demo` → sandbox `cad-demo` running, lifecycle=running, health=healthy (no serve port — ACP) |
-| 4. E2E LLM round-trip | ✅ **PASS** | agent (`hermes acp`) → AI-Gateway (`172.17.0.1:9701`) → llama-swap; streamed answer |
+| 4. E2E LLM round-trip | ✅ **PASS** | agent (`hermes acp`) → AI-Gateway (`172.17.0.1:9701`) → Ollama; streamed answer |
 | 5. Chat over real transport | ✅ **PASS** | `agent chat demo` → streamed tokens from the code-generated config (no manual edits) |
 | 6. Supervisor fault-injection (RES-14) | ✅ **PASS** | manual stop/start lifecycle OK; out-of-band crash → supervisor auto-restarted in ~50 s (`restarted agent demo (attempt 1)`) |
 

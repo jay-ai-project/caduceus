@@ -16,10 +16,10 @@ Consolidated view of the Application Design artifacts. See companions:
 | Q3 | AI-Gateway exposure | **Split listeners** — Control API 127.0.0.1; AI-Gateway on host-gateway iface |
 | Q4 | Session ownership | **hermes owns session**; caduceus stores per-agent session id only |
 
-Carried from earlier gates: Python (typer/FastAPI/httpx/websockets); serve-first single Transport impl; authored hermes Dockerfile; local config-edit scope; default LLM via caduceus + `llamacpp/gemma-4-12b`; one persistent session per agent.
+Carried from earlier gates: Python (typer/FastAPI/httpx/websockets); serve-first single Transport impl; authored hermes Dockerfile; local config-edit scope; default LLM via caduceus + `your-model`; one persistent session per agent.
 
 ## 2. Architecture summary
-One **daemon** hosts three planes: **Control API** (loopback, for the CLI), **AI-Gateway** (OpenAI-compatible proxy reachable by sandboxes), and the **registry/supervisor**. A thin **CLI** is the only client of the Control API. Managed agents run hermes inside `sbx` sandboxes built from an authored image; their hermes is configured so its LLM **provider base_url points back at the caduceus AI-Gateway**, which forwards to the upstream llama-swap. Caduceus talks to each agent through a common **Transport** (serve-first; ACP later) enabling uniform streaming chat for local and remote agents.
+One **daemon** hosts three planes: **Control API** (loopback, for the CLI), **AI-Gateway** (OpenAI-compatible proxy reachable by sandboxes), and the **registry/supervisor**. A thin **CLI** is the only client of the Control API. Managed agents run hermes inside `sbx` sandboxes built from an authored image; their hermes is configured so its LLM **provider base_url points back at the caduceus AI-Gateway**, which forwards to the upstream Ollama. Caduceus talks to each agent through a common **Transport** (serve-first; ACP later) enabling uniform streaming chat for local and remote agents.
 
 ## 3. Components (19) and units
 - **U1 AI-Gateway**: AIGateway, AIGatewayService, UpstreamClient

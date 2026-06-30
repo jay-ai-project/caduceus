@@ -17,7 +17,7 @@ Shared across all units. caduceus is a **local-first** tool: no cloud. "Infrastr
 | **Control API** | `127.0.0.1` | **9700** | local CLI only | none (loopback) |
 | **AI-Gateway** | docker bridge IP (e.g., `172.17.0.1`), **not** broad `0.0.0.0` by default | **9701** | containers + host (not LAN) | per-agent bearer token |
 
-Ports are configurable; chosen to avoid clashes with hermes serve (9119) and llama-swap (9292).
+Ports are configurable; chosen to avoid clashes with hermes serve (9119) and Ollama (11434).
 
 ## Host paths
 - State dir: **`~/.caduceus/`**
@@ -25,12 +25,12 @@ Ports are configurable; chosen to avoid clashes with hermes serve (9119) and lla
 - hermes image build context: `images/hermes/` (in the repo).
 
 ## External dependencies (runtime)
-- **Docker** Engine (bridge networking), **sbx** CLI, **hermes** (inside the image / remote), **upstream LLM** (llama-swap `localhost:9292/v1`).
+- **Docker** Engine (bridge networking), **sbx** CLI, **hermes** (inside the image / remote), **upstream LLM** (Ollama `localhost:11434/v1`).
 
 ## Configuration keys (caduceus Settings; env > file > default)
 | Key | Default |
 |---|---|
-| `upstream_base_url` | **REQUIRED — no default** (env-specific; e.g. the user's llama-swap). Gateway refuses to start until set; U4 prompts interactively. |
+| `upstream_base_url` | **REQUIRED — no default** (env-specific; e.g. the user's Ollama). Gateway refuses to start until set; U4 prompts interactively. |
 | `default_model` | **REQUIRED — no default** (env-specific). |
 | `control_bind` | `127.0.0.1:9700` |
 | `aigateway_bind` | `<bridge-ip>:9701` (auto-detect bridge gw) |

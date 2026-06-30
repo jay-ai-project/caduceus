@@ -18,7 +18,7 @@ Maps U1 logical components to the local runtime. See [shared-infrastructure.md](
 | token→agent map | read from Registry (U2) in memory; backing store `~/.caduceus/state.json` |
 
 ## Networking topology (text)
-- Agent (container) → `http://172.17.0.1:9701/v1` (bridge gw) → AI-Gateway (daemon) → `http://localhost:9292/v1` (llama-swap on host).
+- Agent (container) → `http://172.17.0.1:9701/v1` (bridge gw) → AI-Gateway (daemon) → `http://localhost:11434/v1` (Ollama on host).
 - Control API on `127.0.0.1:9700` is **not** reachable from containers (loopback) — control/data plane separation (Q3=A).
 
 ## Storage / messaging

@@ -103,7 +103,7 @@ Text alternative: The CLI calls the Control API over loopback HTTP. The Control 
 - **Criticality**: High.
 
 ## C14. UpstreamClient  *(U1)*
-- **Purpose**: OpenAI-compatible client to the real LLM upstream (default llama-swap `localhost:9292/v1`).
+- **Purpose**: OpenAI-compatible client to the real LLM upstream (default Ollama `localhost:11434/v1`).
 - **Responsibilities**: forward chat/completions with streaming pass-through; explicit timeouts; surface upstream errors; (v2) target overridable per agent.
 - **Interface**: `complete(request) -> stream/Response`, `models() -> ModelList`.
 - **Criticality**: High.
@@ -128,7 +128,7 @@ Text alternative: The CLI calls the Control API over loopback HTTP. The Control 
 
 ## C18. Config (caduceus settings)  *(cross-cutting)*
 - **Purpose**: caduceus's own configuration.
-- **Responsibilities**: resolve upstream URL (default `http://localhost:9292/v1`), default model (`llamacpp/gemma-4-12b`), listener ports/binds, paths (state dir `~/.caduceus/`), timeouts; precedence env > config file > defaults.
+- **Responsibilities**: resolve upstream URL (default `http://localhost:11434/v1`), default model (`your-model`), listener ports/binds, paths (state dir `~/.caduceus/`), timeouts; precedence env > config file > defaults.
 - **Interface**: `load() -> Settings`.
 - **Criticality**: Medium.
 
@@ -147,4 +147,4 @@ Text alternative: The CLI calls the Control API over loopback HTTP. The Control 
 | Medium-High | Supervisor |
 | Medium | CLI, ControlAPIClient, ConfigService, ImageBuilder, HealthChecker, ConfigEditor, Config, Logging |
 
-External dependencies: Docker daemon, `sbx` CLI, `hermes` (inside image / remote), upstream LLM (llama-swap).
+External dependencies: Docker daemon, `sbx` CLI, `hermes` (inside image / remote), upstream LLM (Ollama).

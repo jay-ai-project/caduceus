@@ -4,7 +4,7 @@ Technology-agnostic domain model for the AI-Gateway. (Transport/framework specif
 
 ## Design decisions (from Functional Design questions)
 - **Q1=A**: agents are identified & authenticated by a **per-agent bearer token** (caduceus-issued, injected into the agent's hermes provider `api_key`).
-- **Q2 (custom rule)**: request model `default` → rewritten to the configured **default model** (`llamacpp/gemma-4-12b`); any other model string is **passed through unchanged**.
+- **Q2 (custom rule)**: request model `default` → rewritten to the configured **default model** (`your-model`); any other model string is **passed through unchanged**.
 - **Q3=A**: **generic `/v1/*` pass-through** reverse proxy (chat/completions gets streaming handling; everything else is forwarded).
 
 ---
@@ -34,7 +34,7 @@ Result of authenticating `agent_token`.
 Where/how to forward (resolved per request).
 | Field | Type | Notes |
 |---|---|---|
-| base_url | string | v1: always caduceus-configured upstream (`http://localhost:9292/v1`) |
+| base_url | string | v1: always caduceus-configured upstream (`http://localhost:11434/v1`) |
 | effective_model | string? | result of model-resolution rule |
 | upstream_auth | string? | credentials for upstream (if any); NOT the agent token |
 | connect_timeout_s | number | RESILIENCY-10 |
@@ -68,7 +68,7 @@ Normalized error mapped to the OpenAI error JSON shape `{ "error": { type, messa
 For `/v1/models` responses (proxied upstream list **augmented** with the `default` alias).
 | Field | Type | Notes |
 |---|---|---|
-| id | string | model id (`default`, `llamacpp/gemma-4-12b`, ...) |
+| id | string | model id (`default`, `your-model`, ...) |
 | object | "model" | |
 | owned_by | string | `caduceus` for the alias |
 
@@ -82,5 +82,5 @@ For `/v1/models` responses (proxied upstream list **augmented** with the `defaul
 
 ## Constants
 - **Sentinel model**: `default` (case-insensitive match).
-- **Default model**: caduceus config `default_model` = `llamacpp/gemma-4-12b`.
-- **Upstream**: caduceus config `upstream_base_url` = `http://localhost:9292/v1`.
+- **Default model**: caduceus config `default_model` = `your-model`.
+- **Upstream**: caduceus config `upstream_base_url` = `http://localhost:11434/v1`.

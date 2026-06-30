@@ -21,7 +21,7 @@ Property testing surfaced two issues, both resolved:
 2. **Real bug fix**: `redact()` used an ASCII-only character class, so a **non-ASCII token** after "Bearer " was not redacted (log secret-leak). Regex changed to `(?i)(bearer\s+)(\S+)`.
 
 ## Change requests applied
-- **No personal defaults in code/tests** (user request): removed baked-in `http://localhost:9292/v1` / `llamacpp/gemma-4-12b` from `settings.py` and all tests. `upstream_base_url` + `default_model` are now **required config** (default `None`); added `Settings.missing_required()` + `ensure_configured()` (raises `ConfigError` with guidance) — the seam for the U4 "prompt if unset, reuse if set" gateway setup (FR-G5). Added `tests/unit/test_settings.py`.
+- **No personal defaults in code/tests** (user request): removed baked-in `http://localhost:11434/v1` / `your-model` from `settings.py` and all tests. `upstream_base_url` + `default_model` are now **required config** (default `None`); added `Settings.missing_required()` + `ensure_configured()` (raises `ConfigError` with guidance) — the seam for the U4 "prompt if unset, reuse if set" gateway setup (FR-G5). Added `tests/unit/test_settings.py`.
 
 ## Requirement traceability
 - FR-P1/P2/P3 → routing + models_augment; BR-2/BR-7/BR-8/BR-4/BR-10 implemented; RESILIENCY-10 (error normalization) in `errors_map`.

@@ -8,7 +8,7 @@ User Stories were skipped (single persona; comprehensive requirements). This map
 |---|---|---|
 | FR-G1..G4 | Daemon, control API, gateway lifecycle, loopback channel | U4 |
 | FR-P1 | OpenAI-compatible `/v1` (chat/completions stream, models) | U1 |
-| FR-P2 | Default route to llama-swap + default model | U1 |
+| FR-P2 | Default route to Ollama + default model | U1 |
 | FR-P3 | Upstream/model configurable | U1 |
 | FR-P4 | Per-agent override (designed-for, v2) | U1 |
 | FR-P5 | Reachable via host.docker.internal | U1 (+ U4 bind) |

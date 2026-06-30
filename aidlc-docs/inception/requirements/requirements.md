@@ -18,7 +18,7 @@
 ### Source statements (traceability)
 - R-SRC-1: "sbx 를 통해 샌드박싱된 환경에서 hermes를 완전 격리시켜서 실행" → FR-A1, NFR-2.
 - R-SRC-2: "caduceus 는 자체 gateway를 서비스 ... '등록된' 원격 hermes agent 들과 선택적으로 대화" → FR-G1..G4, FR-A2, FR-C1.
-- R-SRC-3: "원격지의 hermes agent는 기본적으로 ... caduceus 를 중앙 proxy (ai-gateway) 로써 경유 ... default model llamacpp/gemma-4-12b" → FR-P1..P6.
+- R-SRC-3: "원격지의 hermes agent는 기본적으로 ... caduceus 를 중앙 proxy (ai-gateway) 로써 경유 ... default model your-model" → FR-P1..P6.
 - R-SRC-4: "추후 각 hermes-agent 마다 다른 llm 모델이나 llm url을 ... 수정" → FR-P4 (designed-for, v2).
 - R-SRC-5: "create agent 를 통해 직접 로컬에 sbx 로 ... provisioning 하고 연결" → FR-A1.
 - R-SRC-6: "원격지 hermes 와 일관된 방식 ... 로컬은 acp 로 최적화 ... stream 출력이나 기타 모든 프로토콜이 공통적으로" → FR-C3, FR-C4 (common transport; serve-first, ACP later).
@@ -35,9 +35,9 @@
 - **Agent**: a hermes instance managed by caduceus. Two kinds:
   - **Managed (local)**: provisioned by caduceus via `sbx` into a Docker sandbox from a hermes-preinstalled image.
   - **Registered (remote)**: an already-running hermes endpoint registered by URL.
-- **AI-Gateway**: caduceus's OpenAI-compatible LLM proxy that agents call instead of the LLM directly; forwards to an upstream (default: host llama-swap).
+- **AI-Gateway**: caduceus's OpenAI-compatible LLM proxy that agents call instead of the LLM directly; forwards to an upstream (default: host Ollama).
 - **Transport**: the common, streaming-capable interface caduceus uses to talk to an agent (v1 implementation: `hermes serve` JSON-RPC/WebSocket; future: `hermes acp` for local).
-- **Upstream**: the real LLM backend (default `http://localhost:9292/v1`, model `llamacpp/gemma-4-12b`).
+- **Upstream**: the real LLM backend (default `http://localhost:11434/v1`, model `your-model`).
 
 ---
 
@@ -48,9 +48,9 @@
                        |
                        v   local control API (loopback)
         +-----------------------------------+        +-------------------------+
-        |        caduceus daemon (hub)      |        | host upstream: llama-swap|
-        |  +-----------------------------+  | -----> | localhost:9292/v1        |
-        |  | AI-Gateway (LLM proxy)      |  | <----- | model llamacpp/gemma-4-12b|
+        |        caduceus daemon (hub)      |        | host upstream: Ollama|
+        |  +-----------------------------+  | -----> | localhost:11434/v1        |
+        |  | AI-Gateway (LLM proxy)      |  | <----- | model your-model|
         |  |  OpenAI-compatible /v1      |  |        +-------------------------+
         |  +-----------------------------+  |
         |  | Agent control / chat hub    |  |   (per-agent override of model/url: v2)
@@ -68,7 +68,7 @@
                 base_url = host.docker.internal:<caduceus-port>/v1  (local agents)
 ```
 
-Text alternative: The CLI calls the daemon over a loopback control API. The daemon contains three parts — AI-Gateway (OpenAI-compatible LLM proxy), the chat/control hub, and the registry/state. Agents are either local (sbx sandbox built from a hermes image, with `hermes serve` published to loopback) or remote (registered endpoint). Agents are configured so their LLM provider `base_url` points back at the caduceus AI-Gateway, which forwards to the upstream llama-swap by default. caduceus talks to agents through a common streaming Transport abstraction whose v1 implementation is `hermes serve`.
+Text alternative: The CLI calls the daemon over a loopback control API. The daemon contains three parts — AI-Gateway (OpenAI-compatible LLM proxy), the chat/control hub, and the registry/state. Agents are either local (sbx sandbox built from a hermes image, with `hermes serve` published to loopback) or remote (registered endpoint). Agents are configured so their LLM provider `base_url` points back at the caduceus AI-Gateway, which forwards to the upstream Ollama by default. caduceus talks to agents through a common streaming Transport abstraction whose v1 implementation is `hermes serve`.
 
 ---
 
@@ -83,7 +83,7 @@ Text alternative: The CLI calls the daemon over a loopback control API. The daem
 
 ### 4.2 AI-Gateway (LLM proxy)
 - **FR-P1**: Expose an OpenAI-compatible API: `POST /v1/chat/completions` (including streaming/SSE) and `GET /v1/models`.
-- **FR-P2**: Agent LLM calls are routed to a **configured** upstream + model. The upstream base URL and default model are **required configuration with no baked-in defaults** — they are environment-specific and provided by the user (the author's environment, for example, is a local llama-swap at `http://localhost:9292/v1` with model `llamacpp/gemma-4-12b`, but that is a personal value, not a code default).
+- **FR-P2**: Agent LLM calls are routed to a **configured** upstream + model. The upstream base URL and default model are **required configuration with no baked-in defaults** — they are environment-specific and provided by the user (the author's environment, for example, is a local Ollama at `http://localhost:11434/v1` with model `your-model`, but that is a personal value, not a code default).
 - **FR-P3**: Upstream base URL and default model are configurable via caduceus config/env; the gateway refuses to serve until they are set.
 - **FR-P4**: (Designed-for, v2) per-agent override of model and/or upstream URL; v1 architecture must not preclude it.
 - **FR-P5**: The proxy is reachable from inside sandboxes via `host.docker.internal:<port>`; the daemon binds so both CLI (loopback) and sandbox traffic work.
@@ -130,7 +130,7 @@ Text alternative: The CLI calls the daemon over a loopback control API. The daem
 
 Applicability is scoped to a single-user localhost tool; cloud/HA rules are N/A with rationale.
 
-- **RES-1 (RESILIENCY-01 criticality)**: daemon = High (hub), AI-Gateway = High (all inference flows through it), agents = Medium (individually replaceable). External dependencies: host llama-swap, Docker/`sbx`, hermes image. Documented here and carried into design.
+- **RES-1 (RESILIENCY-01 criticality)**: daemon = High (hub), AI-Gateway = High (all inference flows through it), agents = Medium (individually replaceable). External dependencies: host Ollama, Docker/`sbx`, hermes image. Documented here and carried into design.
 - **RES-2 (RESILIENCY-02 RTO/RPO/DR)**: **N/A for cross-region DR.** Recovery model = durable local state (FR-NFR-7) + ability to recreate (`create`) or re-`register` agents. No standby infrastructure.
 - **RES-3 (RESILIENCY-06 health checks)**: **Applicable** — shallow + deep health per agent (FR-L2) and a daemon self-status (FR-G2).
 - **RES-4 (RESILIENCY-10 dependency isolation)**: **Applicable** — explicit timeouts on all external calls (AI-Gateway→upstream, Transport→agent, sbx/docker invocations); graceful degradation when an agent or the upstream is unavailable (mark unhealthy, surface a clear error, never crash the daemon); fail-fast / basic circuit-breaking for repeatedly failing agents.
@@ -155,7 +155,7 @@ Applicability is scoped to a single-user localhost tool; cloud/HA rules are N/A 
 
 ## 8. Constraints & Assumptions
 
-- Host runs llama-swap at `http://localhost:9292/v1` with model `llamacpp/gemma-4-12b`.
+- Host runs Ollama at `http://localhost:11434/v1` with model `your-model`.
 - Docker + `sbx` are installed; `sbx` has no native hermes agent, so local agents use the `shell` agent with a custom hermes image (`-t/--template`).
 - Inside a sandbox, `localhost` is the container; the host is reached via `host.docker.internal`.
 - `hermes serve` requires an auth provider on non-loopback binds; local agents publish the serve port to loopback via `sbx ports`.
@@ -178,7 +178,7 @@ Applicability is scoped to a single-user localhost tool; cloud/HA rules are N/A 
 - AC-1: `caduceus gateway start` brings up the daemon; `gateway status` reports healthy with the AI-Gateway listening.
 - AC-2: `caduceus agent create --name a1` provisions a sandbox, the agent is configured to use the AI-Gateway, and `agent ls` shows it running + healthy.
 - AC-3: `caduceus agent chat --name a1` streams a model response; exiting and re-running `chat` continues the same session.
-- AC-4: With the upstream (llama-swap) stopped, `chat` fails gracefully with a clear message and the daemon stays up; `agent ls` shows the upstream/agent as unhealthy.
+- AC-4: With the upstream (Ollama) stopped, `chat` fails gracefully with a clear message and the daemon stays up; `agent ls` shows the upstream/agent as unhealthy.
 - AC-5: `caduceus agent register --name r1 --endpoint <url>` registers a remote agent and `chat` works through the same interface.
 - AC-6: `caduceus agent config` changes a local agent's skills/tools/soul, verified inside the sandbox.
 - AC-7: `caduceus agent rm --name a1` removes the agent and tears down its sandbox.
@@ -187,4 +187,4 @@ Applicability is scoped to a single-user localhost tool; cloud/HA rules are N/A 
 
 ## 11. Summary
 
-Caduceus is a local-first **gateway hub** (daemon) plus a thin CLI. It (1) provisions isolated hermes agents in `sbx` sandboxes from a custom image or registers remote hermes endpoints, (2) acts as a central **AI-Gateway** so agents route inference through caduceus to a configurable upstream (default llama-swap / `llamacpp/gemma-4-12b`), and (3) lets the user chat (streaming, session-persistent) with and configure each agent through a **common transport abstraction** (serve-first; ACP optimization later). Resiliency is scoped to a personal tool (health checks, timeouts, graceful degradation, process supervision, durable local state); cloud-scale resiliency rules are N/A. Testing uses pytest + Hypothesis (PBT, full). Security extension is off by choice, with sensible loopback defaults retained.
+Caduceus is a local-first **gateway hub** (daemon) plus a thin CLI. It (1) provisions isolated hermes agents in `sbx` sandboxes from a custom image or registers remote hermes endpoints, (2) acts as a central **AI-Gateway** so agents route inference through caduceus to a configurable upstream (default Ollama / `your-model`), and (3) lets the user chat (streaming, session-persistent) with and configure each agent through a **common transport abstraction** (serve-first; ACP optimization later). Resiliency is scoped to a personal tool (health checks, timeouts, graceful degradation, process supervision, durable local state); cloud-scale resiliency rules are N/A. Testing uses pytest + Hypothesis (PBT, full). Security extension is off by choice, with sensible loopback defaults retained.

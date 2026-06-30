@@ -5,8 +5,8 @@ A local-first **gateway hub + CLI** for orchestrating sandboxed [hermes](https:/
 Caduceus:
 - provisions isolated hermes agents in `sbx` Docker sandboxes (or registers remote ones),
 - acts as a central **AI-Gateway** (OpenAI-compatible) so agents route their LLM calls
-  through caduceus to a configurable upstream (default: host `llama-swap`, model
-  `llamacpp/gemma-4-12b`),
+  through caduceus to a configurable upstream OpenAI-compatible endpoint (e.g. a local
+  Ollama at `http://localhost:11434/v1`),
 - lets you chat (streaming, session-persistent) with and configure each agent through a
   common transport,
 - serves a simple **Web UI** (dashboard + add agent + streaming chat with thinking and
@@ -42,7 +42,7 @@ pytest            # unit + property-based (Hypothesis) tests
 ## Architecture (high level)
 
 ```
-caduceus CLI ──HTTP(loopback)──> caduceus daemon ──┬─ AI-Gateway (OpenAI /v1)  ──> llama-swap
+caduceus CLI ──HTTP(loopback)──> caduceus daemon ──┬─ AI-Gateway (OpenAI /v1)  ──> upstream LLM
                                                     ├─ agent chat/control hub  ──> hermes agents
                                                     └─ agent registry + state
 ```

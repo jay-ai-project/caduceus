@@ -82,9 +82,9 @@ class GatewayService:
         # interactive prompt + persist (foreground TTY only)
         values = {}
         if "upstream_base_url" in missing:
-            values["upstream_base_url"] = prompt("Upstream LLM base URL (e.g. http://localhost:9292/v1): ").strip()
+            values["upstream_base_url"] = prompt("Upstream LLM base URL (e.g. http://localhost:11434/v1): ").strip()
         if "default_model" in missing:
-            values["default_model"] = prompt("Default model (e.g. llamacpp/gemma-4-12b): ").strip()
+            values["default_model"] = prompt("Default model: ").strip()
         for k, v in values.items():
             setattr(self.settings, k, v or None)
         self.settings.ensure_configured()

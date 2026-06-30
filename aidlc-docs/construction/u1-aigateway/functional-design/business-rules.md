@@ -3,7 +3,7 @@
 | ID | Rule | Rationale / source |
 |---|---|---|
 | **BR-1 Auth** | A request whose bearer token does not map to a known agent → **401** `authentication_error`. Missing `Authorization` → 401. (Q1=A) | FR-P5, identification/security |
-| **BR-2 Model resolution** | If body `model` is absent or equals `default` (case-insensitive) → set outgoing `model = config.default_model` (`llamacpp/gemma-4-12b`). Otherwise forward `model` unchanged. (Q2) | FR-P2, FR-P3 |
+| **BR-2 Model resolution** | If body `model` is absent or equals `default` (case-insensitive) → set outgoing `model = config.default_model` (`your-model`). Otherwise forward `model` unchanged. (Q2) | FR-P2, FR-P3 |
 | **BR-3 Upstream target (v1)** | Always forward to `config.upstream_base_url`. Per-agent base_url/model override is **v2** (keyed by agent token). | FR-P2, FR-P4 |
 | **BR-4 Token handling** | Strip the agent bearer token before forwarding upstream; attach `upstream_auth` only if configured. The agent token MUST NOT appear in upstream requests or logs (redact). | NFR-6, PBT P4 |
 | **BR-5 Streaming** | If `stream:true` (chat/completions) → SSE pass-through, flush chunks immediately, propagate `[DONE]`. On client disconnect → cancel upstream. On mid-stream upstream error → emit one OpenAI error SSE event, then close. | FR-P6 |

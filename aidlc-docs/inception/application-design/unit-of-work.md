@@ -43,7 +43,7 @@ caduceus/                       # repo root (workspace root)
 ## Units
 
 ### U1 — AI-Gateway
-- **Responsibility**: OpenAI-compatible LLM proxy that agents call; forwards to upstream (default llama-swap), streaming pass-through; route resolution (default model now, per-agent override v2).
+- **Responsibility**: OpenAI-compatible LLM proxy that agents call; forwards to upstream (default Ollama), streaming pass-through; route resolution (default model now, per-agent override v2).
 - **Modules/components**: `aigateway/` → AIGateway (FastAPI), AIGatewayService, UpstreamClient.
 - **Owns**: FR-P1..P6.
 - **Public interface (to other units)**: AI-Gateway base URL (for U2 to configure agents); `AIGatewayService` mounted by U4 daemon.

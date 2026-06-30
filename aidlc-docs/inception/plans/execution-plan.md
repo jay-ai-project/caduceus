@@ -139,7 +139,7 @@ flowchart TD
 
 | Unit | Scope | Depends on |
 |---|---|---|
-| **U1 — AI-Gateway** | OpenAI-compatible LLM proxy: `/v1/chat/completions` (streaming) + `/v1/models`, upstream forwarding (default llama-swap), config of upstream/default model | — |
+| **U1 — AI-Gateway** | OpenAI-compatible LLM proxy: `/v1/chat/completions` (streaming) + `/v1/models`, upstream forwarding (default Ollama), config of upstream/default model | — |
 | **U2 — Agent Registry & Provisioner** | State store, hermes Docker image, `sbx` provisioning, lifecycle (create/register/ls/rm/stop/start), health checks | U1 (agents configured to use AI-Gateway) |
 | **U3 — Transport & Chat** | Transport abstraction, `hermes serve` client (v1), streaming chat, session continuity | U2 |
 | **U4 — CLI, Daemon & Config** | `typer` CLI, daemon orchestration (gateway start/stop/status), config editing (skills/soul/tools), logs | U1, U2, U3 |
@@ -153,7 +153,7 @@ flowchart TD
 - **Approval gates**: one per stage; the per-unit loop means several gates during Construction. (You can opt to reduce unit count or fold stages to cut gates.)
 
 ## Success Criteria
-- **Primary Goal**: A working `caduceus` that provisions/registers hermes agents, proxies their LLM calls (default llama-swap / gemma-4-12b), and supports streaming, session-persistent chat + local config editing — through a daemon/gateway with a common transport abstraction.
+- **Primary Goal**: A working `caduceus` that provisions/registers hermes agents, proxies their LLM calls (default Ollama / your-model), and supports streaming, session-persistent chat + local config editing — through a daemon/gateway with a common transport abstraction.
 - **Key Deliverables**: caduceus daemon + CLI (Python), AI-Gateway proxy, transport layer, agent registry/provisioner, hermes Docker image, tests (pytest + Hypothesis), build/test instructions.
 - **Quality Gates**: acceptance criteria AC-1..AC-7 pass; no blocking Resiliency/PBT findings; graceful degradation verified (upstream/agent down).
 

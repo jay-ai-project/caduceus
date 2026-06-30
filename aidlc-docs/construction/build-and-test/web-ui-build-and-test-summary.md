@@ -18,7 +18,7 @@
   - Control API: `/`→`/ui/` redirect, `/ui/` serves index, `/agents/{n}/history` returns turns + unknown→404.
   - probe=false skips the health handshake (dashboard-poll perf).
 
-### Integration Tests (LIVE — Docker 29.4.0 + sbx + hermes 0.17.0 + llama-swap)
+### Integration Tests (LIVE — Docker 29.4.0 + sbx + hermes 0.17.0 + Ollama)
 Daemon started (`caduceus gateway start`), real local agent `webui-test` provisioned, exercised over HTTP:
 | Scenario | Result |
 |---|---|
@@ -33,7 +33,7 @@ Daemon started (`caduceus gateway start`), real local agent `webui-test` provisi
 | Unknown-agent history → 404 | ✅ |
 | Cleanup (`agent rm`, `gateway stop`) | ✅ |
 
-**Tool-call display**: the ACP→event mapping is unit-verified (thought + tool_call + tool_call_update → events with meta). A *live* tool invocation depends on the agent having tools enabled and a prompt that triggers one; the gemma test prompts produced thinking but no tool call, so live tool rendering was not forced (mapping covered by unit tests).
+**Tool-call display**: the ACP→event mapping is unit-verified (thought + tool_call + tool_call_update → events with meta). A *live* tool invocation depends on the agent having tools enabled and a prompt that triggers one; the test prompts produced thinking but no tool call, so live tool rendering was not forced (mapping covered by unit tests).
 
 ## Defects found & fixed (during U5 integration)
 - **K — dashboard load/poll was slow**: `GET /agents` ran, per agent, a `sbx ls` lifecycle reconcile (~3 s) **and** an ACP health **handshake** (~3 s, spawns `sbx exec hermes acp`) on every call — ~6 s for 1 agent, ~12 s for 2 — so the dashboard's first paint and every poll were slow (and spawned processes each time). The user reported the agent list taking seconds to appear on page load.

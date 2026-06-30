@@ -22,7 +22,7 @@ receive ProxyRequest
 - `rewrite_model = (request.model.lower() == "default")`.
 
 ### resolve_model(m) — the Q2 rule
-- if `m` is absent OR `m.lower() == "default"` → `config.default_model` (`llamacpp/gemma-4-12b`).
+- if `m` is absent OR `m.lower() == "default"` → `config.default_model` (`your-model`).
 - else → `m` (pass-through unchanged).
 - When `rewrite_model`, the outgoing body's `model` field is replaced with `effective_model`; otherwise body is forwarded byte-for-byte.
 
@@ -53,7 +53,7 @@ agent hermes → ProxyRequest → [auth] → [route/model resolution] → [heade
 
 ## Integration points
 - **Inbound**: agents' hermes (OpenAI client) over `host.docker.internal`.
-- **Outbound**: upstream LLM (llama-swap) via UpstreamClient.
+- **Outbound**: upstream LLM (Ollama) via UpstreamClient.
 - **Config**: caduceus Settings (upstream_base_url, default_model, timeouts); token→agent map from Registry (U2) — injected, read-only here.
 
 ---

@@ -25,7 +25,7 @@ This plan lists (A) the design artifacts to be produced and (B) a few grounded d
 Components (draft):
 - **CLI** (`typer`) — parses commands, calls Control API.
 - **Control API** (daemon, `FastAPI`) — agent lifecycle / chat / config / logs / gateway status for the CLI.
-- **AI-Gateway** (daemon, `FastAPI`) — OpenAI-compatible `/v1/chat/completions` (streaming) + `/v1/models`; forwards to **UpstreamClient** (default llama-swap).
+- **AI-Gateway** (daemon, `FastAPI`) — OpenAI-compatible `/v1/chat/completions` (streaming) + `/v1/models`; forwards to **UpstreamClient** (default Ollama).
 - **Agent Registry & State Store** — persists agents, per-agent session id, settings.
 - **Provisioner (sbx)** — build/use hermes image, create/rm/stop/start sandboxes, publish serve port, configure hermes provider→AI-Gateway, exec/cp.
 - **Transport (abstraction) + ServeTransport** — connect to an agent's `hermes serve` (local published port or remote URL): send/stream, get/set config, health. (ACP impl later.)

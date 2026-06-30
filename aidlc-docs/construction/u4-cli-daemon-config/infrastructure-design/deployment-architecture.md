@@ -17,14 +17,14 @@ host (WSL2 + Docker). No cloud, no staging/prod split.
                                                        ▼                                 │ (bearer)
                               agent sandbox (sbx/Docker): hermes serve :9119 ────────────┘
                                                        │ hermes LLM provider base_url = AI-Gateway
-                                            upstream LLM (llama-swap 127.0.0.1:9292/v1)  ◄── AI-Gateway forwards
+                                            upstream LLM (Ollama 127.0.0.1:11434/v1)  ◄── AI-Gateway forwards
 ```
 
 Text alternative: each `caduceus` command runs the CLI, which calls the daemon's loopback
 Control API. The daemon hosts the Control API, the U1 AI-Gateway (on the bridge iface), the
 U2 registry/agent services, the U3 chat/transport + Supervisor. Chat flows CLI→Control
 API(SSE)→ChatService→Transport(ws)→agent `hermes serve`. The agent's hermes calls the
-caduceus AI-Gateway for LLM, which forwards to the upstream llama-swap. Config edits flow
+caduceus AI-Gateway for LLM, which forwards to the upstream Ollama. Config edits flow
 CLI→ConfigService→ConfigEditor→sandbox.
 
 ## Lifecycle

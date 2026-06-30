@@ -20,14 +20,14 @@ The checks below are lightweight smoke measurements, not a load campaign.
 ```bash
 # Compare time-to-first-byte: direct upstream vs. through the AI-Gateway.
 curl -sN -o /dev/null -w 'ttfb=%{time_starttransfer}s\n' \
-  http://localhost:9292/v1/chat/completions \
+  http://localhost:11434/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"llamacpp/gemma-4-12b","stream":true,"messages":[{"role":"user","content":"count to 20"}]}'
+  -d '{"model":"your-model","stream":true,"messages":[{"role":"user","content":"count to 20"}]}'
 
 curl -sN -o /dev/null -w 'ttfb=%{time_starttransfer}s\n' \
   $GW/v1/chat/completions -H "Authorization: Bearer $TOK" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"llamacpp/gemma-4-12b","stream":true,"messages":[{"role":"user","content":"count to 20"}]}'
+  -d '{"model":"your-model","stream":true,"messages":[{"role":"user","content":"count to 20"}]}'
 ```
 - **Pass**: gateway TTFB ≈ direct TTFB (small constant overhead); chunks arrive progressively, not all at the end.
 

@@ -9,11 +9,11 @@
 - **Complexity / Scope**: Complex / System-wide (gateway daemon + AI-proxy + agent registry + transport abstraction + CLI)
 
 ## Target Architecture (working hypothesis — pending Requirements approval)
-- **caduceus daemon (gateway hub)**: hosts (a) AI-Gateway = OpenAI-compatible LLM proxy that agents route through (forwards to host llama-swap by default, per-agent override later), (b) agent chat/control hub, (c) agent registry + state.
+- **caduceus daemon (gateway hub)**: hosts (a) AI-Gateway = OpenAI-compatible LLM proxy that agents route through (forwards to host Ollama by default, per-agent override later), (b) agent chat/control hub, (c) agent registry + state.
 - **caduceus CLI**: thin client to the daemon (`agent create|register|ls|chat|config|rm`, `gateway start|stop|status`).
 - **Agents (two kinds)**: (1) *managed/local* — provisioned via `sbx` + hermes pre-installed image; (2) *registered/remote* — existing hermes endpoint registered by URL.
 - **Transport abstraction**: common streaming interface; remote via `hermes serve` (JSON-RPC/WS), local optimization via `hermes acp` (stdio over `sbx exec -i`).
-- **LLM routing**: agent `hermes` `custom_providers.base_url` → caduceus AI-Gateway (`host.docker.internal:<port>/v1`) → llama-swap (`localhost:9292/v1`, model `llamacpp/gemma-4-12b`).
+- **LLM routing**: agent `hermes` `custom_providers.base_url` → caduceus AI-Gateway (`host.docker.internal:<port>/v1`) → Ollama (`localhost:11434/v1`, model `your-model`).
 
 ## Workspace State
 - **Existing Code**: No
@@ -27,7 +27,7 @@
 - **hermes**: /home/beom/.local/bin/hermes — AI agent CLI (chat, serve, proxy, gateway, sessions, config, status, ...)
 - **sbx**: /usr/bin/sbx — Docker Sandboxes (create, run, exec, ls, ports, template, secret, ...)
 - **Docker**: Server 29.4.0 on Ubuntu 24.04 (WSL2)
-- **Host LLM endpoint**: http://localhost:9292/v1 (llama-swap), model `llamacpp/gemma-4-12b`
+- **Host LLM endpoint**: http://localhost:11434/v1 (Ollama), model `your-model`
 
 ## Code Location Rules
 - **Application Code**: Workspace root (NEVER in aidlc-docs/)
@@ -101,7 +101,7 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
 - [x] **Build and Test** ✅ COMPLETE & APPROVED (after all units)
   - **Build**: ✅ editable install + wheel build OK; console script verified; all modules import OK.
   - **Tests**: ✅ **141/141 pass** (118 unit + 23 PBT) on CPython 3.12.3, `.venv` (+9 AcpTransport tests).
-  - **Integration**: ✅ **all 6 scenarios PASS live** (Docker 29.4.0 + sbx + hermes 0.17.0 + llama-swap): CLI↔daemon, AI-Gateway auth, provision, E2E LLM, ACP chat (streamed "PONG"/"OK"), supervisor auto-restart (~50s).
+  - **Integration**: ✅ **all 6 scenarios PASS live** (Docker 29.4.0 + sbx + hermes 0.17.0 + Ollama): CLI↔daemon, AI-Gateway auth, provision, E2E LLM, ACP chat (streamed "PONG"/"OK"), supervisor auto-restart (~50s).
   - **10 defects found & fixed (A–J)** during integration — see build-and-test-summary.md. Biggest: **transport pivot `hermes serve`→`hermes acp` (stdio)** because serve needs a full Node web build (contradicts slim image). User-approved (image-packaging→ACP).
   - **Code changes (post-CONSTRUCTION, in Build & Test):** new `caduceus/transport/acp.py` (AcpTransport) + `Transport.for_agent` local→ACP; provisioner/service/health/wiring rewired (no serve/port); `images.py` auto-loads image into sbx; hermes config writes inline `api_key`; `cli/client.py` provision timeout; daemon supervisor boot fix; Dockerfile `[acp]` extra + correct git ref. No new caduceus runtime dependency (raw JSON-RPC).
   - **Performance**: N/A as gate (personal local tool).
@@ -141,9 +141,9 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
 
 - [x] **U5 Build & Test** — complete, **awaiting approval gate**
   - Build ✅ (editable + wheel incl. webui assets). Tests ✅ **174/174** (154 +20).
-  - Live integration ✅ (Docker+sbx+hermes 0.17.0+llama-swap): `/`→`/ui/` redirect, `/ui/` index+assets, BR-W1 (no UI on :9701 → 404), local provision, **streaming chat with thinking** (107 thinking + 162 token + 1 done; terminal invariant holds live), **history** 4-turn replay via session/load, unknown-agent history 404.
+  - Live integration ✅ (Docker+sbx+hermes 0.17.0+Ollama): `/`→`/ui/` redirect, `/ui/` index+assets, BR-W1 (no UI on :9701 → 404), local provision, **streaming chat with thinking** (107 thinking + 162 token + 1 done; terminal invariant holds live), **history** 4-turn replay via session/load, unknown-agent history 404.
   - **Defect K fixed** (live: 6.1s→~1ms): dashboard `/agents` ran a per-agent `sbx` reconcile + ACP health handshake every call (~6s/1 agent, ~12s/2). `?probe=false` (UI) is now an instant registry-only projection; Supervisor sweep caches `last_health`; frontend fetches `/status` + `/agents` independently and fires immediately on load; poll 3s. CLI `agent ls` unchanged (probe=true authoritative). Trade-off: health supervisor-refreshed (~30s), may be stale for one sweep after restart.
-  - Tool-call live invocation not forced (gemma prompts produced thinking, no tool call); ACP→event mapping unit-verified.
+  - Tool-call live invocation not forced (test prompts produced thinking, no tool call); ACP→event mapping unit-verified.
   - Artifacts: construction/build-and-test/web-ui-build-and-test-summary.md.
 
 ## Current Status

@@ -15,7 +15,7 @@ def test_sentinel_resolves_to_default():
 
 def test_explicit_model_passes_through():
     assert resolve_model("foo/bar", D) == "foo/bar"
-    assert resolve_model("llamacpp/other", D) == "llamacpp/other"
+    assert resolve_model("vendor/other", D) == "vendor/other"
 
 
 def test_build_route_rewrite_flag():

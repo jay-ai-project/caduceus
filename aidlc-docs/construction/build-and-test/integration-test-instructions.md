@@ -18,7 +18,7 @@ environment (Docker Engine + `sbx` + `hermes` image + an upstream LLM).
 > Local-first tool — no cloud. "Services" below are local processes/containers.
 
 ## Environment-dependency matrix
-| Scenario | Docker | sbx | hermes image | upstream LLM (llama-swap) | caduceus daemon |
+| Scenario | Docker | sbx | hermes image | upstream LLM (Ollama) | caduceus daemon |
 |---|---|---|---|---|---|
 | 1. CLI ↔ daemon Control API | — | — | — | — | ✅ |
 | 2. AI-Gateway → upstream | — | — | — | ✅ | ✅ |
@@ -37,15 +37,15 @@ environment (Docker Engine + `sbx` + `hermes` image + an upstream LLM).
 docker build -t caduceus/hermes:0.17.0 --build-arg HERMES_GIT_REF=v2026.6.19 images/hermes
 docker info >/dev/null            # confirm Docker Engine reachable
 sbx ls >/dev/null                 # confirm sbx CLI works
-# Upstream LLM (host llama-swap) reachable at the configured base url, e.g.:
-curl -s http://localhost:9292/v1/models | head
+# Upstream LLM (host Ollama) reachable at the configured base url, e.g.:
+curl -s http://localhost:11434/v1/models | head
 ```
 
 ### 2. Configure & start the daemon
 ```bash
 . .venv/bin/activate
-export CADUCEUS_UPSTREAM_BASE_URL=http://localhost:9292/v1
-export CADUCEUS_DEFAULT_MODEL=llamacpp/gemma-4-12b
+export CADUCEUS_UPSTREAM_BASE_URL=http://localhost:11434/v1
+export CADUCEUS_DEFAULT_MODEL=your-model
 caduceus gateway start            # foreground; add -d to daemonize
 caduceus gateway status           # expect: running, Control API 127.0.0.1:9700, AI-Gateway <bridge-ip>:9701
 ```
@@ -66,7 +66,7 @@ caduceus gateway status           # expect: running, Control API 127.0.0.1:9700,
   curl -s $GW/v1/models -H "Authorization: Bearer $TOK" | head
   curl -sN $GW/v1/chat/completions -H "Authorization: Bearer $TOK" \
        -H 'Content-Type: application/json' \
-       -d '{"model":"llamacpp/gemma-4-12b","stream":true,"messages":[{"role":"user","content":"ping"}]}'
+       -d '{"model":"your-model","stream":true,"messages":[{"role":"user","content":"ping"}]}'
   ```
 - **Expected**: `/v1/models` lists the upstream model(s); streaming returns SSE `data:` chunks ending in `[DONE]`; missing/invalid bearer → 401; upstream error mapped to OpenAI error shape.
 

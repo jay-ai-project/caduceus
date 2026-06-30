@@ -6,7 +6,7 @@
 flowchart LR
     subgraph HOST["host (WSL2)"]
         DAEMON["caduceus daemon<br/>AI-Gateway 172.17.0.1:9701<br/>Control 127.0.0.1:9700"]
-        LS["llama-swap (user upstream)"]
+        LS["Ollama (user upstream)"]
         PORT["published loopback<br/>127.0.0.1:P"]
     end
     subgraph SBX["sbx sandbox: cad-name (bridge 172.17.x)"]

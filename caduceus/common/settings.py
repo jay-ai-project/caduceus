@@ -35,7 +35,7 @@ class Timeouts:
 @dataclass
 class Settings:
     # --- Required, environment-specific (no baked-in defaults) ---
-    #: Base URL of the upstream OpenAI-compatible LLM (e.g. a local llama-swap).
+    #: Base URL of the upstream OpenAI-compatible LLM (e.g. a local Ollama endpoint).
     upstream_base_url: str | None = None
     #: Model used when an agent requests the `default` alias.
     default_model: str | None = None

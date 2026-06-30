@@ -7,13 +7,13 @@
 
 ## 제가 확인한 핵심 사실 (설계 근거)
 
-- **AI-게이트웨이(LLM 프록시) 패턴은 hermes가 기본 지원합니다.** 현재 호스트 `~/.hermes/config.yaml` 도 이미 `custom_providers` 로 `base_url: http://localhost:9292/v1`, `model: llamacpp/gemma-4-12b` 를 사용 중입니다. 따라서 각 에이전트의 `base_url` 을 **caduceus 프록시**로 바꾸면, caduceus가 llama-swap(기본) 또는 에이전트별 오버라이드로 포워딩할 수 있습니다. `hermes config set` 으로 프로그램적 설정도 가능합니다.
+- **AI-게이트웨이(LLM 프록시) 패턴은 hermes가 기본 지원합니다.** 현재 호스트 `~/.hermes/config.yaml` 도 이미 `custom_providers` 로 `base_url: http://localhost:11434/v1`, `model: your-model` 를 사용 중입니다. 따라서 각 에이전트의 `base_url` 을 **caduceus 프록시**로 바꾸면, caduceus가 Ollama(기본) 또는 에이전트별 오버라이드로 포워딩할 수 있습니다. `hermes config set` 으로 프로그램적 설정도 가능합니다.
 - **공통 전송(transport) 추상화가 가능합니다.** 원격 = `hermes serve`(JSON-RPC/WebSocket, 스트리밍 지원), 로컬 최적화 = `hermes acp`(stdio JSON-RPC, `sbx exec -i` 로 구동). 두 경로 모두 스트리밍 가능.
-- **컨테이너 안의 `localhost` 는 호스트가 아닙니다.** 에이전트→caduceus 프록시는 `host.docker.internal:<port>` 로 접속해야 합니다. caduceus→llama-swap 은 호스트에서 직접 `localhost:9292` 사용.
+- **컨테이너 안의 `localhost` 는 호스트가 아닙니다.** 에이전트→caduceus 프록시는 `host.docker.internal:<port>` 로 접속해야 합니다. caduceus→Ollama 은 호스트에서 직접 `localhost:11434` 사용.
 - **설정 편집**(skills/soul/tools)은 `hermes skills`/`hermes tools`/`hermes config set`/`SOUL.md` 로 가능하며, **로컬 sbx 에이전트는** `sbx exec`/`sbx cp` 로 확실히 편집 가능합니다. **원격 에이전트는** caduceus가 가진 접근 권한 수준에 따라 달라집니다(아래 Q5).
 
 ## 확정으로 가정한 사항 (이견 있으면 알려주세요)
-- 에이전트 LLM 호출은 **기본적으로 caduceus 경유 + 기본 모델(`llamacpp/gemma-4-12b`)**, 에이전트별 URL/모델 오버라이드는 **설계에는 포함하되 1차 구현 이후 단계**로.
+- 에이전트 LLM 호출은 **기본적으로 caduceus 경유 + 기본 모델(`your-model`)**, 에이전트별 URL/모델 오버라이드는 **설계에는 포함하되 1차 구현 이후 단계**로.
 - 세션 유지는 **에이전트당 단일 영속 세션 자동 이어가기** 기본.
 - 로컬 프로비저닝은 **`sbx` + hermes 사전설치 이미지**(`shell` 에이전트 + 커스텀 템플릿).
 

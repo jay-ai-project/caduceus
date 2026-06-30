@@ -17,7 +17,7 @@ Fill `[Answer]:` in Part B, then say "완료".
 
 ## Context (from Application Design)
 - AIGateway (FastAPI) binds a container-reachable interface; agents call `http://host.docker.internal:<port>/v1/...`.
-- AIGatewayService resolves a route and forwards via UpstreamClient to the upstream (default llama-swap `localhost:9292/v1`, model `llamacpp/gemma-4-12b`).
+- AIGatewayService resolves a route and forwards via UpstreamClient to the upstream (default Ollama `localhost:11434/v1`, model `your-model`).
 - Per-agent model/URL override is **designed-for, v2** (v1 = all agents → default upstream + default model).
 - Streaming pass-through is required (FR-P6).
 
@@ -39,7 +39,7 @@ X) Other (please describe after [Answer]: tag below)
 [Answer]: A
 
 ## Question 2 — "기본 모델" 적용 지점
-기본 모델(`llamacpp/gemma-4-12b`)을 어디서 강제할까요?
+기본 모델(`your-model`)을 어디서 강제할까요?
 
 A) **에이전트 설정에서 (게이트웨이는 통과) (권장)** — caduceus가 hermes를 기본 모델로 설정하고, 게이트웨이는 요청의 `model` 을 그대로 upstream에 전달. 단순/투명. v2 오버라이드는 게이트웨이가 해당 토큰의 `model`을 재작성하는 방식으로 추가.
 
@@ -47,7 +47,7 @@ B) **게이트웨이에서 주입/재작성** — 게이트웨이가 요청 `mod
 
 X) Other (please describe after [Answer]: tag below)
 
-[Answer]: hermes의 모델 설정이 "default" 로 되어있으면 caduceus가 default model (llamacpp/gemma-4-12b) 로 upstream에 전달. 만약 hermes 모델 설정이 따로 있다면, 그대로 전달.
+[Answer]: hermes의 모델 설정이 "default" 로 되어있으면 caduceus가 default model (your-model) 로 upstream에 전달. 만약 hermes 모델 설정이 따로 있다면, 그대로 전달.
 
 ## Question 3 — 프록시 표면(엔드포인트 범위)
 게이트웨이가 노출/중계할 OpenAI 엔드포인트 범위는?

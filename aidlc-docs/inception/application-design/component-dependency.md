@@ -31,7 +31,7 @@ Notes: Logging is used by all (omitted for brevity). Config is read by most adap
 | Agent (hermes) → AI-Gateway | HTTP/OpenAI over `host.docker.internal` (Q3=A) |
 | Caduceus ↔ Agent (Transport) | `hermes serve` JSON-RPC/WebSocket (local published port via `sbx ports`, or remote URL) |
 | Provisioner ↔ sandbox | `sbx` CLI subprocess (`create/exec/cp/ports/ls/stop/rm`) |
-| AIGatewayService → Upstream | HTTP/OpenAI to llama-swap (`localhost:9292/v1`) |
+| AIGatewayService → Upstream | HTTP/OpenAI to Ollama (`localhost:11434/v1`) |
 | Registry ↔ disk | JSON file, atomic write (temp + `os.replace`) |
 
 ---
@@ -57,7 +57,7 @@ flowchart LR
     end
     SBX["sbx / docker"]
     AGENT["hermes agent<br/>(sandbox / remote)"]
-    UP["upstream LLM<br/>llama-swap :9292"]
+    UP["upstream LLM<br/>Ollama :11434"]
 
     USER --> CLI
     CLI -->|HTTP loopback| CTRL
@@ -88,7 +88,7 @@ flowchart LR
     style AGENT fill:#BBDEFB,stroke:#1565C0,stroke-width:2px,color:#000
 ```
 
-Text alternative (data flow): The user runs the CLI, which calls the Control API over loopback. The Control API delegates to AgentService / ChatService / ConfigService. AgentService uses the Provisioner (which drives sbx/docker to create the agent sandbox), the Registry (JSON state), the Transport, and the HealthChecker. ChatService uses the Transport (to the hermes agent) and the Registry (session id). The hermes agent makes its LLM calls to the AI-Gateway via `host.docker.internal`; AIGatewayService forwards them to the upstream LLM (llama-swap). The Supervisor and HealthChecker periodically probe transports and the upstream.
+Text alternative (data flow): The user runs the CLI, which calls the Control API over loopback. The Control API delegates to AgentService / ChatService / ConfigService. AgentService uses the Provisioner (which drives sbx/docker to create the agent sandbox), the Registry (JSON state), the Transport, and the HealthChecker. ChatService uses the Transport (to the hermes agent) and the Registry (session id). The hermes agent makes its LLM calls to the AI-Gateway via `host.docker.internal`; AIGatewayService forwards them to the upstream LLM (Ollama). The Supervisor and HealthChecker periodically probe transports and the upstream.
 
 ---
 

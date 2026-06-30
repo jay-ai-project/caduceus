@@ -43,7 +43,7 @@ Plus env `OPENAI_API_KEY=<agent-token>` so hermes sends `Authorization: Bearer <
 | Hop | Address |
 |---|---|
 | agent hermes → AI-Gateway | `http://172.17.0.1:9701/v1` (bridge IP; bearer=token) |
-| AI-Gateway → upstream LLM | `http://localhost:9292/v1` (host; user-configured) |
+| AI-Gateway → upstream LLM | `http://localhost:11434/v1` (host; user-configured) |
 | caduceus (U3) → agent serve | `http://127.0.0.1:<published>` (+ serve_auth) |
 
 ## 6. Storage / paths (host)
