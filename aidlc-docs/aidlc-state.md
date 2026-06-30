@@ -107,10 +107,26 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - **Performance**: N/A as gate (personal local tool).
   - Artifacts: build-instructions.md, unit-test-instructions.md, integration-test-instructions.md, performance-test-instructions.md, build-and-test-summary.md.
 
+## 🔵 NEW CYCLE — U5 Gateway Web UI (started 2026-06-30)
+- **Trigger**: user request for a simple Web UI on `caduceus gateway` (dashboard + add agent + streaming chat w/ thinking & tool display).
+- **Phase**: INCEPTION — Requirements Analysis.
+- [x] Requirements Analysis (U5) — complete, **awaiting approval gate**
+  - Answers (all recommended): Q1=A static vanilla SPA (no build); Q2=A mount on Control API 127.0.0.1:9700; Q3=A full thinking+tool args/results collapsible; Q4=A local provision + remote register parity; Q5=A history via ACP session/load replay (best-effort); Q6=A loopback no auth; Q7=A polling; Q8=A inherit extensions; Q9=none.
+  - **Core enabler (cross-cutting U3)**: extend ChatEvent (`transport/events.py`) + AcpTransport (`transport/acp.py`) to surface thinking (`agent_thought_chunk`) + tool calls (`tool_call`/`tool_call_update`), currently dropped — preserving terminal-event invariant + CLI compat.
+  - Extensions inherited: Security=No, Resiliency=Yes/full, PBT=Yes/full.
+  - Artifacts: requirements/web-ui-verification-questions.md, requirements/web-ui-requirements.md.
+- [x] Workflow Planning (U5) — complete, **awaiting approval gate**
+  - Stages to EXECUTE: Functional Design (light) → Code Generation → Build & Test.
+  - Stages to SKIP: Application Design, Units Generation (single small unit), NFR Req/Design, Infrastructure Design (all inherit U1–U4 + shared-infrastructure.md).
+  - Risk: Low–Medium (cross-cutting U3 event-path change must preserve terminal invariant + CLI compat). Rollback: Easy (additive).
+  - Artifacts: plans/web-ui-execution-plan.md.
+
 ## Current Status
-- **Lifecycle Phase**: OPERATIONS (placeholder)
-- **Current Stage**: CONSTRUCTION fully complete & approved (all 4 units + Build & Test). OPERATIONS is a workflow placeholder — no active stages in v1.
-- **Next Stage**: — (Operations: future deployment/monitoring/incident-response expansion)
+- **Lifecycle Phase**: CONSTRUCTION (new cycle — U5 Web UI)
+- **Current Stage**: INCEPTION — Workflow Planning (U5) complete, awaiting approval.
+- **Next Stage**: Functional Design (U5, light)
+- **U5 Gateway Web UI**: 🔵 IN PROGRESS — Requirements done, awaiting gate.
+- (prior) all 4 units + Build & Test: ✅ COMPLETE & APPROVED.
 - **U3 Transport & Chat**: ✅ COMPLETE & COMMITTED (design f244457, code d5e488b)
 - **U1 AI-Gateway**: ✅ COMPLETE (committed 8f25e5d)
 - **U2 Registry & Provisioner**: ✅ COMPLETE & APPROVED (committed a9439df)
