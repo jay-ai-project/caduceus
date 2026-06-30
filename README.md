@@ -1,13 +1,18 @@
-# Caduceus
+<div align="center">
 
-> A local-first **gateway hub + CLI + Web UI** for orchestrating sandboxed
-> [hermes](https://hermes-agent.nousresearch.com/) agents.
+<img src="assets/logo.png" alt="Caduceus" width="420" />
+
+**A local-first gateway hub + CLI + Web UI for orchestrating sandboxed [hermes](https://hermes-agent.nousresearch.com/) agents.**
 
 <p>
   <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue" />
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green" />
   <img alt="Status" src="https://img.shields.io/badge/status-alpha-orange" />
 </p>
+
+</div>
+
+---
 
 Caduceus runs AI agents in isolated [Docker sandboxes](https://docs.docker.com/ai/sandboxes/),
 routes their LLM traffic through a single OpenAI-compatible gateway you control, and gives
@@ -41,15 +46,15 @@ responses, thinking, and tool-call display.
 ## Architecture
 
 ```
-                         ┌────────────────────────── caduceus daemon ──────────────────────────┐
-  caduceus CLI ──HTTP──> │  Control API (127.0.0.1:9700)  ── Web UI + agent control            │
-  Web browser  ──HTTP──> │                                                                      │
-                         │  AI-Gateway (:9701, OpenAI /v1) ───────────────────► upstream LLM    │
-                         │  agent registry + supervisor                          (Ollama, …)    │
-                         └───────────▲──────────────────────────────────────────────────────────┘
-                                     │ hermes agents call the AI-Gateway for their LLM
-                  ┌──────────────────┴───────────────────┐
-            local sbx sandbox (hermes)            remote hermes (registered)
+                         ┌──────────────── caduceus daemon ────────────────┐
+   caduceus CLI ──HTTP──►│ Control API (127.0.0.1:9700) · Web UI + control │
+   Web browser  ──HTTP──►│                                                 │
+                         │ AI-Gateway (:9701, OpenAI /v1)                  │──HTTP──► upstream LLM
+                         │ agent registry + supervisor                     │          (Ollama, llama.cpp, …)
+                         └────────────────────────▲────────────────────────┘
+                                                  │ hermes agents call the AI-Gateway for their LLM
+                           ┌──────────────────────┴──────────────────────┐
+                       local sbx sandbox (hermes)        remote hermes (registered)
 ```
 
 - **Control API** (`127.0.0.1:9700`, loopback) — serves the CLI, the Web UI (`/ui`), and agent control/chat endpoints.
