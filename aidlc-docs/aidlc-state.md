@@ -245,10 +245,84 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
     catches any error → `ok=False` (BR-P2), and `agent ls` skips `sbx ls` when no local agents. PBT-P3 updated.
   - Artifacts: construction/build-and-test/u7-perf-stability-build-and-test-summary.md.
 
+## 🔵 NEW CYCLE — U8 HTTP/SSE Transport + Docker Runtime Migration (started 2026-07-01)
+- **Trigger**: user request — re-architecture. Replace `hermes acp`+`sbx` local stack with the
+  official **hermes API Server** (HTTP+SSE); unify Local/Remote transport into one HTTP/SSE
+  transport; replace `sbx` with **plain Docker containers** (sbx blocks inbound; HTTP server
+  needs inbound); add optional **gVisor (`runsc`)** runtime (default `runc`, opt-in via config).
+- **Phase**: INCEPTION — Requirements Analysis.
+- **Terminology locked**: "hermes API server" = per-agent HTTP/SSE server (`hermes gateway`);
+  "gateway"/"caduceus gateway" = the caduceus daemon (unchanged meaning).
+- [x] Requirements Analysis (U8) — complete, **awaiting approval gate**
+  - Answers: Q1=A Sessions+Runs composed; Q2=A loopback port publish (`-p 127.0.0.1:<hp>:8642`);
+    Q3=A new `caduceus doctor`; Q4=A fail-fast when `runsc` configured-but-unavailable;
+    Q5=A `gateway config --runtime`; Q6=A→**strengthened: NO legacy at all** (never deployed,
+    zero existing agents; sbx forgotten entirely, no migration/fallback — clean docker-only);
+    Q7=A unify transport, keep remote as management distinction (drop Acp+Serve transports);
+    Q8=A auto-approve + surface tool events; Q9=Security **best-effort/advisory (non-blocking)**.
+  - **Refinement (user, post-draft)**: drop U7 fast-`ls` caching/single-snapshot sweep →
+    `agent ls` does **real-time, no-cache** status: parallel `/health` HTTP probes + live
+    `docker` status every request. Caching may be re-added later if slow (deferred, not U8).
+  - **Extensions (this cycle)**: Security Baseline = **Yes (best-effort/advisory, non-blocking)**;
+    Resiliency = Yes (full); PBT = Yes (full).
+  - Scope touches: transport/{base,acp,serve,chat,supervisor,events}, agents/{provisioner,images,
+    health,service,hermes_config}, common/{models,settings}, config/gateway_config, cli/{app,client,
+    render}, daemon/{control_api,wiring,gateway}, webui (history), images/hermes/Dockerfile.
+  - Key risk: hermes API endpoint/SSE shapes need a spike (mirrors ACP discovery); inbound trust
+    boundary (mitigated loopback+bearer); large cross-cutting blast radius (preserve all invariants).
+  - Artifacts: requirements/u8-http-sse-docker-verification-questions.md,
+    requirements/u8-http-sse-docker-requirements.md.
+- [x] Requirements Analysis (U8) — **APPROVED** (2026-07-01, incl. refinements: no-legacy + real-time no-cache ls).
+- [x] Workflow Planning (U8) — complete, **awaiting approval gate**
+  - Stages to EXECUTE: **Functional Design (std) + Spike**, **Infrastructure Design (LIGHT)**,
+    Code Generation, Build & Test.
+  - Stages to SKIP: Application Design (behind existing ports), Units Generation (single cycle),
+    NFR Requirements + NFR Design (inherit U1/U3 cross-cutting; NFRs captured in requirements).
+  - Risk: **High** (architectural transformation: runtime + protocol swap; must preserve
+    terminal-event invariant, warm-up, boot-reconnect, lifecycle decoupling, full suite;
+    hermes API shapes need a spike). Rollback: Moderate. Testing: Complex.
+  - Critical path: spike → models+settings → transport(events+HermesApiTransport, retire acp/serve)
+    → provisioner(Docker)+images(docker-only)+health(HTTP) → service+chat+supervisor →
+    daemon(wiring/control_api/doctor/gateway)+gateway_config(--runtime) → cli+webui → tests+B&T.
+  - Artifacts: plans/u8-http-sse-docker-execution-plan.md.
+- [x] Workflow Planning (U8) — **APPROVED** (2026-07-01).
+
+### 🟢 CONSTRUCTION (U8)
+- [x] **U8 Spike (hermes API server)** — CONCLUSIVE & POSITIVE. Key findings (hermes 0.17.0):
+  API server is a platform of **`hermes gateway run`** (foreground; docs say "recommended for
+  Docker"), enabled by env `API_SERVER_ENABLED=true`+`API_SERVER_KEY`(+HOST/PORT, default 8642),
+  Bearer auth. Endpoints confirmed: `/api/sessions/{id}/chat/stream` (SSE), `/api/sessions/{id}/
+  messages` (history), `/v1/runs/{id}/stop`+`/approval`, `/health`,`/v1/health`,`/health/detailed`.
+  **run_id surfaced on session stream** → stop wireable. SSE events (assistant.delta/tool.progress
+  [_thinking]/tool.started|completed|failed/run.completed/done/error) map onto U5 ChatEvent
+  (superset). ⚠️ `hermes gateway` (0.17.0) is otherwise the *messaging* gateway; the linked docs
+  track `main`. Artifact: construction/u8-http-sse-docker/functional-design/spike-hermes-api.md.
+- [x] **U8 Functional Design** (std) — complete, **awaiting approval gate**
+  - Inline decisions (D1–D6): one `HermesApiTransport` (drop Acp+Serve); turns via Sessions
+    chat/stream + stop via Runs run_id; Docker ephemeral loopback port `-p 127.0.0.1::8642`
+    read back; one token = Bearer + API_SERVER_KEY; entrypoint `hermes gateway run`; real-time
+    no-cache list. AgentRecord reshape (drop serve_port/serve_auth; add host_port/container_name/
+    runtime). L1–L9 logic units; BR-T/D/R/N/O rules; PBT-U8-1..5.
+  - Security (advisory/Q9): loopback-only bind + Bearer + secret-off-argv + fail-closed —
+    surfaced non-blocking. Resiliency/PBT full.
+  - Artifacts: construction/u8-http-sse-docker/functional-design/{spike-hermes-api,domain-entities,
+    business-logic-model,business-rules}.md
+- [x] **U8 Functional Design** (std) — **APPROVED** (2026-07-01).
+- [x] **U8 Infrastructure Design** (LIGHT) — complete, **awaiting approval gate**
+  - Deployment-model change recorded: sbx→plain Docker; NEW inbound loopback publish
+    (`-p 127.0.0.1::8642` → ephemeral host_port); outbound bridge gw `:9701` unchanged; optional
+    `runsc` runtime (default runc, spawn-time fail-fast); docker-build-only image (no sbx load);
+    HTTP `/health`+live `docker inspect` (no cache); boot reconcile via `docker ps`.
+    Added `container_runtime` config key. Updated shared-infrastructure.md (sbx notes marked historical).
+  - Artifacts: construction/u8-http-sse-docker/infrastructure-design/infrastructure-design.md;
+    updated construction/shared-infrastructure.md.
+
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (U7 Performance & Stability) — ✅ COMPLETE & APPROVED.
-- **Current Stage**: — (Operations placeholder).
-- **Next Stage**: —
+- **Lifecycle Phase**: CONSTRUCTION (U8 HTTP/SSE Transport + Docker Runtime Migration) —
+  Infrastructure Design (LIGHT) complete, **awaiting approval gate**.
+- **Current Stage**: Infrastructure Design (U8).
+- **Next Stage**: Code Generation (U8) after approval.
+- **Prior**: CONSTRUCTION (U7 Performance & Stability) — ✅ COMPLETE & APPROVED.
 - **U7 Performance & Stability**: ✅ COMPLETE & APPROVED — Requirements + Plan + FD + CodeGen +
   Build & Test all approved. 228 tests; live-verified (fast `agent ls`, background create, warm
   first chat, gateway stop/start reconnect).
