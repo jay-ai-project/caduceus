@@ -21,7 +21,8 @@ def provider_settings(aigateway_url: str, model_alias: str = "default") -> dict:
     }
 
 
-def render_hermes_config(aigateway_url: str, model_alias: str = "default", api_key: str | None = None) -> str:
+def render_hermes_config(aigateway_url: str, model_alias: str = "default",
+                         api_key: str | None = None, workspace: str | None = None) -> str:
     """Render the hermes config.yaml text routing the LLM through caduceus.
 
     Matches the verified hermes 0.17.0 `model:` schema (Build & Test 2026-06-30):
@@ -56,6 +57,13 @@ def render_hermes_config(aigateway_url: str, model_alias: str = "default", api_k
     # Unattended operation (BR-Q8): no human is present to answer approvals.
     lines.append("approvals:")
     lines.append('  mode: "off"')
+    if workspace:
+        # Point the agent's gateway cwd at its persistent (bind-mounted) workspace so
+        # artifacts land there, not in the ephemeral HERMES_HOME. Set via config (not the
+        # deprecated TERMINAL_CWD env). The workspace is nested under HERMES_HOME so the
+        # image-default HERMES_WRITE_SAFE_ROOT=/opt/data still permits writes to it.
+        lines.append("terminal:")
+        lines.append(f"  cwd: {workspace}")
     return "\n".join(lines) + "\n"
 
 

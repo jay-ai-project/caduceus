@@ -6,18 +6,33 @@ real impl is exercised in Build & Test integration.
 
 U8: local agents run as **plain Docker containers** built from the **official**
 `nousresearch/hermes-agent` image, running the hermes API server (`gateway run`, port
-8642). caduceus reaches them over HTTP on a published host **loopback** port. The
-official image keeps all state under **`/opt/data`** (HERMES_HOME) and its init chowns
-that dir to its internal `hermes` user, so caduceus writes the LLM config into the
-host-mounted workspace (`<ws>/config.yaml`) before start, resetting ownership first when a
-prior run left the dir chowned. Status is queried **live** (no cache). Optional gVisor
-runtime via `--runtime runsc` (fail-fast if configured but unavailable).
+8642). caduceus reaches them over HTTP on a published host **loopback** port.
+
+Storage split (U8-D6):
+  * **HERMES_HOME (`/opt/data`)** — hermes config + memory + sessions. **Not** bind-mounted;
+    it rides the image's anonymous `VOLUME /opt/data`, so it survives stop→start (restart)
+    but is wiped on delete (we `docker rm -v`). Recreating an agent with the same name thus
+    starts with a **fresh** config/memory.
+  * **Workspace (`/opt/data/workspace`)** — the agent's cwd and artifact output. Bind-mounted
+    (a nested mount inside HERMES_HOME) to a host path keyed by agent name (`<ws>/workspace`),
+    so artifacts **persist** across delete+recreate (a bind mount is untouched by `rm -v`).
+    Nesting it under HERMES_HOME keeps the image-default `HERMES_WRITE_SAFE_ROOT=/opt/data`
+    valid — the installed hermes only honours a *single* safe-root path, so a colon-joined
+    `/opt/data:/workspace` would be read as one bogus path and deny **every** write.
+    The agent's cwd is pointed here via `terminal.cwd` in the rendered config.
+
+The container is remapped to the host UID/GID (`HERMES_UID`/`HERMES_GID`) so the bind-mounted
+workspace is writable both ways. The LLM config is injected with `docker cp` (no host-side
+secret file; the stage2 init chowns+chmods it on start). Status is queried **live** (no
+cache). Optional gVisor runtime via `--runtime runsc` (fail-fast if configured but
+unavailable).
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Optional, Protocol
@@ -27,10 +42,13 @@ from caduceus.common.logging import get_logger
 
 log = get_logger("caduceus.provisioner")
 
-#: The agent's host workspace is bind-mounted here — the official image's HERMES_HOME.
+#: HERMES_HOME — config + memory. NOT bind-mounted (image anon volume; wiped on `rm -v`).
 CONTAINER_DATA = "/opt/data"
-#: hermes config path relative to the workspace (== /opt/data/config.yaml in-container).
-HERMES_CONFIG_REL = "config.yaml"
+#: The agent's cwd / artifact dir — bind-mounted to a persistent host path. Nested under
+#: HERMES_HOME so the image-default single-path HERMES_WRITE_SAFE_ROOT=/opt/data covers it.
+CONTAINER_WORKSPACE = "/opt/data/workspace"
+#: In-container config path we `docker cp` the rendered hermes config into.
+HERMES_CONFIG_PATH = f"{CONTAINER_DATA}/config.yaml"
 #: The API-server port hermes listens on inside the container.
 CONTAINER_API_PORT = 8642
 #: Command passed to the official image's entrypoint to run the API server.
@@ -88,36 +106,39 @@ class DockerProvisioner:
         return out
 
     def workspace_for(self, container: str) -> str:
-        """Host path bind-mounted at /opt/data (HERMES_HOME) inside the container."""
+        """Host path bind-mounted at /workspace inside the container (persistent artifacts)."""
         return str(self._workspace_root / container / "workspace")
 
-    async def _ensure_workspace(self, workspace: Path, image: str) -> None:
-        """Ensure the host workspace exists and is writable by us. The official image's
-        init chowns /opt/data to its internal user (UID 10000), so a workspace left over
-        from a prior run is not writable — reset ownership via a one-shot root helper
-        (chown) so caduceus can (re)write the config before start."""
-        if workspace.exists() and not os.access(workspace, os.W_OK):
-            log.info("resetting ownership of reused workspace %s", workspace)
-            await self._check(
-                "run", "--rm", "--entrypoint", "chown",
-                "-v", f"{workspace}:{CONTAINER_DATA}", image,
-                "-R", f"{os.getuid()}:{os.getgid()}", CONTAINER_DATA, timeout=60.0)
-        else:
-            workspace.mkdir(parents=True, exist_ok=True)
+    def _layout_env(self) -> dict[str, str]:
+        """Container-layout env owned by the provisioner: run as the host UID/GID so the
+        bind-mounted workspace is writable both ways. (HERMES_WRITE_SAFE_ROOT stays at the
+        image default /opt/data — which already covers the nested workspace — and the cwd is
+        set via `terminal.cwd` in the rendered config, not the deprecated TERMINAL_CWD env.)"""
+        return {
+            "HERMES_UID": str(os.getuid()),
+            "HERMES_GID": str(os.getgid()),
+        }
+
+    async def _ensure_workspace(self, workspace: Path) -> None:
+        """Ensure the host workspace dir exists. The container runs as our UID/GID
+        (`_layout_env`), so files it writes here are owned by us and a reused workspace
+        stays writable — no ownership reset needed."""
+        workspace.mkdir(parents=True, exist_ok=True)
 
     async def create(self, container: str, image: str, env: dict[str, str], runtime: str) -> None:
         """`docker create` the agent container (created, not started) from the official
-        image. Bind-mounts the host workspace at /opt/data, publishes 8642 to a
-        Docker-assigned host loopback port, runs `gateway run`. Fails fast if `runtime`
-        is unavailable."""
+        image. Bind-mounts the persistent host workspace at /opt/data/workspace (cwd); the
+        rest of HERMES_HOME (/opt/data) is left on the image's anonymous volume. Publishes
+        8642 to a Docker-assigned host loopback port, runs `gateway run`. Fails fast if
+        `runtime` is unavailable."""
         workspace = Path(self.workspace_for(container))
-        await self._ensure_workspace(workspace, image)
+        await self._ensure_workspace(workspace)
         args = ["create", "--name", container, "--restart", "no",
                 "-p", f"127.0.0.1::{CONTAINER_API_PORT}",
-                "-v", f"{workspace}:{CONTAINER_DATA}", "-w", CONTAINER_DATA]
+                "-v", f"{workspace}:{CONTAINER_WORKSPACE}", "-w", CONTAINER_WORKSPACE]
         if runtime and runtime != "runc":
             args += ["--runtime", runtime]
-        for key, value in env.items():
+        for key, value in {**self._layout_env(), **env}.items():
             args += ["-e", f"{key}={value}"]
         args.append(image)
         args += list(GATEWAY_CMD)
@@ -144,18 +165,23 @@ class DockerProvisioner:
         return None
 
     async def write_config(self, container: str, content: str) -> None:
-        """Write the hermes config into the agent's HERMES_HOME on the **host** side of the
-        bind mount (`<workspace>/config.yaml`), so it is present at /opt/data/config.yaml
-        when the container starts. Carries the bearer token → 600. (Host-side write, not
-        `docker cp`: a mount over /opt/data would shadow a pre-start cp. Workspace ownership
-        is reset in `_ensure_workspace`/create so this write always succeeds.)"""
-        cfg = Path(self.workspace_for(container)) / HERMES_CONFIG_REL
-        cfg.parent.mkdir(parents=True, exist_ok=True)
-        cfg.write_text(content, encoding="utf-8")
+        """Inject the hermes config into the (created, not-yet-started) container's
+        HERMES_HOME via `docker cp` → /opt/data/config.yaml. HERMES_HOME is unmounted now,
+        so the config lands in the container's anon volume (wiped on delete, kept on restart)
+        and never touches the host filesystem as a secret file. The stage2 init chowns it to
+        the hermes user and chmods 640 on start, so an inbound root:root 600 file is fine."""
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write(content)
+            tmp = fh.name
         try:
-            os.chmod(cfg, 0o600)
-        except OSError:
-            pass
+            os.chmod(tmp, 0o600)
+            await self._check("cp", tmp, f"{container}:{HERMES_CONFIG_PATH}", timeout=30.0)
+        finally:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
     async def stop(self, container: str) -> None:
         await self._check("stop", container, timeout=60.0)
@@ -164,7 +190,9 @@ class DockerProvisioner:
         await self._check("start", container, timeout=60.0)
 
     async def remove(self, container: str) -> None:
-        await self._check("rm", "-f", container, timeout=60.0)
+        # -v also drops the anon HERMES_HOME volume → config/memory are wiped on delete
+        # (the persistent /workspace is a bind mount, unaffected).
+        await self._check("rm", "-f", "-v", container, timeout=60.0)
 
     async def status(self, container: str) -> str:
         rc, out, _ = await self._run("inspect", "-f", "{{.State.Status}}", container, timeout=15.0)

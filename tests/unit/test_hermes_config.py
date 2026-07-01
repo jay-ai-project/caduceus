@@ -43,6 +43,17 @@ def test_approvals_off_present_even_without_api_key():
     assert "api_key" not in doc["model"]
 
 
+def test_workspace_sets_terminal_cwd():
+    doc = _parse(render_hermes_config("http://gw/v1", "default", api_key="tok",
+                                      workspace="/opt/data/workspace"))
+    assert doc["terminal"]["cwd"] == "/opt/data/workspace"
+
+
+def test_no_terminal_block_when_workspace_unset():
+    doc = _parse(render_hermes_config("http://gw/v1", "default", api_key="tok"))
+    assert "terminal" not in doc
+
+
 def test_remote_guidance_tells_operator_to_disable_approvals():
     text = remote_setup_guidance("http://gw/v1", "tok", "default")
     assert "approvals.mode: off" in text
