@@ -87,6 +87,20 @@ async def test_stop_start_local(tmp_path):
     assert (await svc.start("a")).lifecycle == Lifecycle.running
 
 
+async def test_start_refreshes_endpoint_after_restart(tmp_path):
+    # Docker reassigns the ephemeral host port on start; `start` must refresh the
+    # stored endpoint or health stays unhealthy after stop→start (U8-D5).
+    reg, svc, _ = make_service(tmp_path)
+    await svc.create("a")
+    ep1 = reg.get("a").endpoint
+    await svc.stop("a")
+    rec = await svc.start("a")
+    assert rec.lifecycle == Lifecycle.running
+    assert rec.endpoint and rec.endpoint != ep1                 # refreshed to the new port
+    assert rec.endpoint.endswith(str(rec.host_port))
+    assert reg.get("a").endpoint == rec.endpoint                # persisted
+
+
 # ---- U5: probe=false skips the health handshake (dashboard poll) ----
 class _CountingHealth:
     def __init__(self):

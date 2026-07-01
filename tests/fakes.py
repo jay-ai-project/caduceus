@@ -65,6 +65,9 @@ class FakeProvisioner:
     async def start(self, container: str) -> None:
         self._maybe_fail("start")
         self.containers[container] = "running"
+        # Docker reassigns the published ephemeral host port on each start (U8-D5).
+        self.ports[container] = self._next_port
+        self._next_port += 1
 
     async def remove(self, container: str) -> None:
         self.calls.append("remove")

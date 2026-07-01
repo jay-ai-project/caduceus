@@ -334,6 +334,15 @@ class AgentService:
         rec = self._require(name)
         self._reject_remote_lifecycle(rec)
         await self.provisioner.start(rec.container_name)
+        # Docker reassigns the published ephemeral host port on each start, so the stored
+        # endpoint goes stale after stop→start → refresh it or health stays unhealthy (U8-D5).
+        try:
+            hp = await self.provisioner.host_port(rec.container_name)
+            if hp:
+                rec.host_port = hp
+                rec.endpoint = f"http://127.0.0.1:{hp}"
+        except Exception as exc:  # noqa: BLE001 — best-effort; keep starting
+            log.warning("start: host_port refresh for %s failed: %s", rec.name, exc)
         return await self._set_lifecycle(rec, Lifecycle.running)
 
     # ---- helpers -----------------------------------------------------

@@ -36,6 +36,11 @@ All scenarios PASS:
   reordered the saga to create → put_file(config) → **start** → read host_port → endpoint.
 - **U8-D4** — `/messages` returns items under `"data"` (OpenAI-list), not `"messages"` →
   `_parse_history` now reads `data` (+ `messages`/bare-list fallback). Regression test added.
+- **U8-D5** (post-approval, user-reported) — Docker reassigns the published **ephemeral** host
+  port on every `start`, so after `agent stop` → `agent start` the stored `endpoint` was stale
+  and health stayed **unhealthy**. `AgentService.start` now refreshes `host_port`/`endpoint`
+  after `docker start` (as `reconcile_all` already did on boot). Verified live (44628→44629,
+  healthy) + regression test `test_start_refreshes_endpoint_after_restart`.
 
 ## Security (advisory, Q9 — non-blocking)
 - Loopback-only publish (`127.0.0.1::8642`) confirmed live; Bearer required (bad key → 401);
