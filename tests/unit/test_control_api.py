@@ -48,7 +48,7 @@ async def test_create_agent_wait_streams_progress_then_done():
             events = [json.loads(line[len("data:"):]) for line in
                       [ln async for ln in resp.aiter_lines() if ln.startswith("data:")]]
     phases = [e["phase"] for e in events if e["event"] == "progress"]
-    assert "creating sandbox" in phases                    # progress streamed
+    assert "creating container" in phases                    # progress streamed
     done = [e for e in events if e["event"] == "done"]
     assert len(done) == 1 and done[0]["agent"]["name"] == "new1"  # final result
 

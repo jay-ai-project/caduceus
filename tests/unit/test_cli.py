@@ -60,7 +60,7 @@ def test_agent_create_background_default(monkeypatch):
     res = runner.invoke(cli_app.app, ["agent", "create", "new1"])
     assert res.exit_code == 0
     assert "creating agent 'new1' in the background" in res.stdout
-    assert "creating sandbox" not in res.output  # no blocking provisioning progress
+    assert "creating container" not in res.output  # no blocking provisioning progress
 
 
 def test_agent_create_wait(monkeypatch):
@@ -68,7 +68,7 @@ def test_agent_create_wait(monkeypatch):
     res = runner.invoke(cli_app.app, ["agent", "create", "new1", "--wait"])
     assert res.exit_code == 0
     assert "created agent 'new1'" in res.stdout
-    assert "creating sandbox" in res.output      # provisioning progress shown
+    assert "creating container" in res.output      # provisioning progress shown
 
 
 def test_agent_create_json_stdout_is_clean(monkeypatch):
@@ -78,7 +78,7 @@ def test_agent_create_json_stdout_is_clean(monkeypatch):
     assert res.exit_code == 0
     data = json.loads(res.stdout)              # stdout is pure JSON
     assert data[0]["name"] == "new1"
-    assert "creating sandbox" in res.stderr    # progress on stderr, not stdout
+    assert "creating container" in res.stderr    # progress on stderr, not stdout
 
 
 def test_agent_create_error_exit_code(monkeypatch):
@@ -131,3 +131,37 @@ def test_gateway_status_json(monkeypatch):
     res = runner.invoke(cli_app.app, ["gateway", "status", "--json"])
     assert res.exit_code == 0
     assert json.loads(res.stdout)["pid"] == 7
+
+
+# ================= U8: doctor + gateway config --runtime =================
+def test_doctor_ok(monkeypatch):
+    _patch_client(monkeypatch, up=True)
+    from caduceus.config import doctor as doc
+    rep = doc.DoctorReport([doc.Check("docker", ok=True, detail="server 27.0")])
+    monkeypatch.setattr("caduceus.config.doctor.run_doctor", lambda **kw: rep)
+    res = runner.invoke(cli_app.app, ["doctor"])
+    assert res.exit_code == 0
+    assert "docker" in res.stdout
+
+
+def test_doctor_problem_exit_code(monkeypatch):
+    _patch_client(monkeypatch, up=False)
+    from caduceus.config import doctor as doc
+    rep = doc.DoctorReport([doc.Check("container runtime (runsc)", ok=False,
+                                      detail="missing", hint="install gVisor")])
+    monkeypatch.setattr("caduceus.config.doctor.run_doctor", lambda **kw: rep)
+    res = runner.invoke(cli_app.app, ["doctor"])
+    assert res.exit_code == 1
+
+
+def test_gateway_config_set_runtime(monkeypatch):
+    fake = _patch_client(monkeypatch, up=True)
+    res = runner.invoke(cli_app.app, ["gateway", "config", "--runtime", "runsc"])
+    assert res.exit_code == 0
+    assert fake.set_gateway_calls and fake.set_gateway_calls[0].container_runtime == "runsc"
+
+
+def test_gateway_config_bad_runtime(monkeypatch):
+    _patch_client(monkeypatch, up=True)
+    res = runner.invoke(cli_app.app, ["gateway", "config", "--runtime", "bogus"])
+    assert res.exit_code == 2  # usage/validation error

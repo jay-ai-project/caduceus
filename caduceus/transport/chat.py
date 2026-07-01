@@ -49,10 +49,8 @@ class ChatService:
         self._health_check = health_check
         self._factory = transport_factory
         self._creating_retry_delay = creating_retry_delay
-        # Reuse one open transport (and its `hermes acp` process) per agent across
-        # turns, so cold-start + provider/model probing is paid once, not per turn.
-        # Turns to the same agent are serialized (one stdio process). Disable for
-        # the simple per-call lifecycle.
+        # Reuse one open HTTP transport (and its session) per agent across turns, so
+        # session creation is paid once, not per turn.
         self._reuse = reuse_transport
         self._pool: dict[str, _Pooled] = {}
 
@@ -76,12 +74,12 @@ class ChatService:
 
     # ---- warm-up (FR-U7-3; no LLM spend) -----------------------------
     async def warm(self, name: str) -> None:
-        """Pre-open the pooled ACP transport so the first chat is instant (BR-P6).
+        """Pre-open the pooled HTTP transport so the first chat is instant (BR-P6).
 
-        Runs `initialize` + `session/new` (or `session/load`) and leaves the
-        transport open in the pool for reuse on the first user turn. Best-effort:
-        any failure is swallowed (the agent re-warms lazily on first chat) and no
-        LLM completion is issued (warm-up stops before any prompt).
+        Ensures the hermes API session exists (`POST /api/sessions`) and leaves the
+        transport open in the pool for reuse on the first user turn. Best-effort: any
+        failure is swallowed (the agent re-warms lazily on first chat) and no LLM
+        completion is issued (warm-up stops before any prompt).
         """
         rec = self.registry.get(name)
         if rec is None or rec.kind != AgentKind.local or not self._reuse:
@@ -95,7 +93,7 @@ class ChatService:
         self._pool[name] = entry
         async with entry.lock:
             try:
-                await entry.transport.open()  # initialize + session/new|load (no prompt)
+                await entry.transport.open()  # ensure session (no prompt / no LLM)
                 await self._persist_session(rec, entry.transport)
             except Exception as exc:  # noqa: BLE001 — non-fatal; re-warms on first chat
                 await self._evict(name)
@@ -105,9 +103,9 @@ class ChatService:
     async def history(self, name: str) -> list[HistoryTurn]:
         """Prior turns for an agent's persisted session, best-effort.
 
-        Remote agents, sessionless agents, or any failure → `[]` (BR-W8/W9).
-        Uses a dedicated short-lived transport so the pooled live-chat transport
-        and its running session are never disturbed (BR-W10).
+        Remote agents, sessionless agents, or any failure → `[]` (BR-W8/W9). Uses a
+        dedicated short-lived transport (its own HTTP client) so the pooled live-chat
+        transport is never disturbed (BR-W10). Replays `GET /api/sessions/{id}/messages`.
         """
         rec = self.registry.get(name)
         if rec is None or rec.kind != AgentKind.local or not rec.session_id:
@@ -118,6 +116,8 @@ class ChatService:
         except Exception as exc:  # noqa: BLE001 — best-effort; never raise to the UI
             log.info("history load error for %s: %s", name, exc)
             return []
+        finally:
+            await transport.close()
 
     # ---- per-call transport (legacy / remote) ------------------------
     async def _stream_oneshot(self, rec: AgentRecord, message: str) -> AsyncIterator[ChatEvent]:

@@ -48,6 +48,9 @@ class Settings:
     aigateway_bind: str = "0.0.0.0:9701"
     aigateway_advertise_host: str | None = None
     upstream_auth: str | None = None
+    #: Docker runtime for agent containers: "runc" (default) | "runsc" (gVisor, opt-in).
+    #: Availability is enforced at container-spawn time (fail-fast); see U8 BR-R2.
+    container_runtime: str = "runc"
     timeouts: Timeouts = field(default_factory=Timeouts)
 
     #: Fields that must be configured before the gateway can serve.
@@ -65,6 +68,7 @@ class Settings:
             aigateway_bind=os.getenv("CADUCEUS_AIGATEWAY_BIND", "0.0.0.0:9701"),
             aigateway_advertise_host=os.getenv("CADUCEUS_AIGW_ADVERTISE_HOST"),
             upstream_auth=os.getenv("CADUCEUS_UPSTREAM_AUTH"),
+            container_runtime=os.getenv("CADUCEUS_CONTAINER_RUNTIME", "runc"),
             timeouts=Timeouts(
                 connect=float(os.getenv("CADUCEUS_CONNECT_TIMEOUT", "10")),
                 read=float(os.getenv("CADUCEUS_IDLE_TIMEOUT", "120")),
@@ -105,6 +109,7 @@ class Settings:
             aigateway_bind=pick("CADUCEUS_AIGATEWAY_BIND", "aigateway_bind", "0.0.0.0:9701"),
             aigateway_advertise_host=pick("CADUCEUS_AIGW_ADVERTISE_HOST", "aigateway_advertise_host"),
             upstream_auth=pick("CADUCEUS_UPSTREAM_AUTH", "upstream_auth"),
+            container_runtime=pick("CADUCEUS_CONTAINER_RUNTIME", "container_runtime", "runc"),
             timeouts=Timeouts(
                 connect=float(os.getenv("CADUCEUS_CONNECT_TIMEOUT", str(t.get("connect", 10)))),
                 read=float(os.getenv("CADUCEUS_IDLE_TIMEOUT", str(t.get("read", 120)))),
@@ -128,7 +133,8 @@ class Settings:
 
         lines = ["# caduceus config (written by `gateway start` bootstrap)"]
         for key in ("upstream_base_url", "default_model", "control_bind",
-                    "aigateway_bind", "aigateway_advertise_host", "upstream_auth"):
+                    "aigateway_bind", "aigateway_advertise_host", "upstream_auth",
+                    "container_runtime"):
             val = getattr(self, key)
             if val is not None:
                 lines.append(f"{key} = {esc(val)}")

@@ -1,10 +1,11 @@
-"""Test doubles for U2 (no real Docker/sbx) and U3 (no real hermes serve)."""
+"""Test doubles for U2/U3/U4 under U8: no real Docker, no real hermes API server."""
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import Optional
 
+from caduceus.agents.provisioner import RuntimeUnavailable
 from caduceus.common.models import (
     AgentKind,
     AgentRecord,
@@ -13,61 +14,78 @@ from caduceus.common.models import (
     Lifecycle,
 )
 from caduceus.transport.base import Transport, TransportKind, TransportState
-from caduceus.transport.events import ChatEvent, ChatEventType
+from caduceus.transport.events import ChatEvent
 
 
 class FakeProvisioner:
-    def __init__(self, fail_on: str | None = None):
-        self.sandboxes: dict[str, str] = {}
+    """In-memory stand-in for DockerProvisioner (U8 Protocol)."""
+
+    def __init__(self, fail_on: str | None = None, unavailable_runtimes: Optional[set[str]] = None):
+        # container -> "created" | "running" | "stopped"
+        self.containers: dict[str, str] = {}
         self.files: dict[tuple[str, str], str] = {}
         self.env: dict[str, str] = {}
+        self.runtimes: dict[str, str] = {}
+        self.ports: dict[str, int] = {}
         self.calls: list[str] = []
         self.fail_on = fail_on
+        self.unavailable_runtimes = unavailable_runtimes or set()
+        self._next_port = 49001
 
     def _maybe_fail(self, method: str) -> None:
         self.calls.append(method)
         if self.fail_on == method:
             raise RuntimeError(f"fake failure in {method}")
 
-    def workspace_for(self, sandbox: str) -> str:
-        return f"/ws/{sandbox}"
+    def workspace_for(self, container: str) -> str:
+        return f"/ws/{container}"
 
-    async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None:
-        self._maybe_fail("create_sandbox")
-        self.sandboxes[sandbox] = "running"
+    async def create(self, container: str, image: str, env: dict[str, str], runtime: str) -> None:
+        self._maybe_fail("create")
+        if runtime and runtime != "runc" and runtime in self.unavailable_runtimes:
+            raise RuntimeUnavailable(f"runtime '{runtime}' not available")
+        self.containers[container] = "created"
         self.env.update(env)
+        self.runtimes[container] = runtime
+        self.ports[container] = self._next_port
+        self._next_port += 1
 
-    async def write_file(self, sandbox: str, path: str, content: str) -> None:
-        self._maybe_fail("write_file")
-        self.files[(sandbox, path)] = content
+    async def host_port(self, container: str) -> Optional[int]:
+        self.calls.append("host_port")
+        return self.ports.get(container)
 
-    async def start_serve(self, sandbox: str, serve_auth: str) -> int:
-        self._maybe_fail("start_serve")
-        return 40000
+    async def put_file(self, container: str, path: str, content: str) -> None:
+        self._maybe_fail("put_file")
+        self.files[(container, path)] = content
 
-    async def stop(self, sandbox: str) -> None:
+    async def stop(self, container: str) -> None:
         self._maybe_fail("stop")
-        self.sandboxes[sandbox] = "stopped"
+        self.containers[container] = "stopped"
 
-    async def start(self, sandbox: str) -> None:
+    async def start(self, container: str) -> None:
         self._maybe_fail("start")
-        self.sandboxes[sandbox] = "running"
+        self.containers[container] = "running"
 
-    async def remove(self, sandbox: str) -> None:
-        self.sandboxes.pop(sandbox, None)
+    async def remove(self, container: str) -> None:
+        self.calls.append("remove")
+        self.containers.pop(container, None)
+        self.ports.pop(container, None)
 
-    async def status(self, sandbox: str) -> str:
+    async def status(self, container: str) -> str:
         self.calls.append("status")
-        return self.sandboxes.get(sandbox, "missing")
+        st = self.containers.get(container)
+        if st is None:
+            return "missing"
+        return "running" if st == "running" else "stopped"
 
-    async def list_statuses(self):
-        from caduceus.agents.provisioner import SandboxSnapshot
-        self.calls.append("list_statuses")
-        if getattr(self, "snapshot_ok", True) is False:
-            return SandboxSnapshot({}, ok=False)
-        return SandboxSnapshot(dict(self.sandboxes), ok=True)
+    async def statuses(self) -> dict[str, str]:
+        self.calls.append("statuses")
+        if getattr(self, "statuses_raises", False):
+            raise RuntimeError("docker ps failed")
+        return {c: ("running" if st == "running" else "stopped")
+                for c, st in self.containers.items()}
 
-    async def logs(self, sandbox: str, follow: bool = False) -> AsyncIterator[str]:
+    async def logs(self, container: str, follow: bool = False) -> AsyncIterator[str]:
         yield "fake log"
 
 
@@ -85,16 +103,20 @@ class FakeImageBuilder:
 
 
 class FakeHealthChecker:
-    def __init__(self, level: HealthLevel = HealthLevel.healthy):
-        self.level = level
+    """Reports `level` (shallow always True unless the agent name is in `unhealthy`)."""
 
-    async def check(self, rec: AgentRecord, deep: bool = False,
-                    sandbox_status: Optional[str] = None) -> HealthStatus:
+    def __init__(self, level: HealthLevel = HealthLevel.healthy, unhealthy: Optional[set[str]] = None):
+        self.level = level
+        self.unhealthy = unhealthy or set()
+
+    async def check(self, rec: AgentRecord, deep: bool = False) -> HealthStatus:
+        if rec.name in self.unhealthy:
+            return HealthStatus(HealthLevel.unhealthy, shallow=False, detail="unhealthy", checked_at="t")
         return HealthStatus(self.level, shallow=True, deep=(True if deep else None), checked_at="t")
 
 
 # ===================================================================
-# U3 — Transport & Chat test doubles (no real hermes serve)
+# U3 — Transport & Chat test doubles (no real hermes API server)
 # ===================================================================
 
 def make_agent(
@@ -102,16 +124,17 @@ def make_agent(
     kind: AgentKind = AgentKind.local,
     session_id: Optional[str] = None,
     lifecycle: Lifecycle = Lifecycle.running,
-    serve_port: Optional[int] = 40000,
+    host_port: Optional[int] = 49001,
+    runtime: str = "runc",
 ) -> AgentRecord:
     return AgentRecord(
         name=name,
         kind=kind,
         token="tok",
-        serve_auth="serve-secret",
-        sandbox_name=("cad-" + name) if kind == AgentKind.local else None,
-        serve_port=serve_port if kind == AgentKind.local else None,
-        endpoint=(f"http://127.0.0.1:{serve_port}" if kind == AgentKind.local else "http://remote:9119"),
+        container_name=("cad-" + name) if kind == AgentKind.local else None,
+        host_port=host_port if kind == AgentKind.local else None,
+        runtime=runtime,
+        endpoint=(f"http://127.0.0.1:{host_port}" if kind == AgentKind.local else "http://remote:8642"),
         session_id=session_id,
         lifecycle=lifecycle,
     )
@@ -133,6 +156,9 @@ class FakeRegistry:
     async def upsert(self, rec: AgentRecord) -> None:
         self._agents[rec.name] = rec
 
+    async def delete(self, name: str) -> None:
+        self._agents.pop(name, None)
+
     async def set_session(self, name: str, session_id: str) -> None:
         self.sessions_set.append((name, session_id))
         rec = self._agents.get(name)
@@ -141,16 +167,16 @@ class FakeRegistry:
 
 
 class FakeTransport(Transport):
-    """Scripted transport. `script` is a list of raw ChatEvents (pre-normalize).
+    """Scripted transport (HTTP-like). `script` is a list of raw ChatEvents (pre-normalize).
 
-    Session behavior: returns the requested `session_id`, unless it equals
-    `reject_session` (or is None) in which case it simulates create/recreate by
-    setting `session_id = new_session_id` (Q1 transparent recreate).
-    Cooperative cancel: when `request_cancel()` is called, the next emitted event
-    is `done{cancelled}` (Q6).
+    Session behavior: `open()` creates a session (`new_session_id`) when none is set,
+    mirroring `HermesApiTransport` create-on-open. During a turn, a `session_id` equal
+    to `reject_session` (or None) triggers a transparent recreate.
+    Cooperative cancel: when `request_cancel()` is called, the next event is
+    `done{cancelled}`.
     """
 
-    kind = TransportKind.serve
+    kind = TransportKind.http
 
     def __init__(
         self,
@@ -187,6 +213,8 @@ class FakeTransport(Transport):
             raise RuntimeError("connect refused")
         self.opened = True
         self.state = TransportState.open
+        if not self.session_id:
+            self.session_id = self.new_session_id
 
     async def close(self) -> None:
         self.closed = True
@@ -208,10 +236,12 @@ class FakeTransport(Transport):
             yield ev
 
 
-# --- uniformity property fakes: two transports, two wire formats, same output ---
+# --- uniformity property fakes: two wire formats, one transport, same output ---
 
 class _ScriptedWireTransport(Transport):
     """Base for the uniformity fakes: decode a wire script to ChatEvents."""
+
+    kind = TransportKind.http
 
     def __init__(self, rec: AgentRecord, wire: list[dict]):
         super().__init__(rec)
@@ -237,9 +267,7 @@ class _ScriptedWireTransport(Transport):
                 yield ev
 
 
-class ServeLikeFake(_ScriptedWireTransport):
-    kind = TransportKind.serve
-
+class WireFakeA(_ScriptedWireTransport):
     def _decode(self, frame: dict) -> Optional[ChatEvent]:
         t = frame["type"]
         if t == "delta":
@@ -251,9 +279,7 @@ class ServeLikeFake(_ScriptedWireTransport):
         return None
 
 
-class AcpLikeFake(_ScriptedWireTransport):
-    kind = TransportKind.acp
-
+class WireFakeB(_ScriptedWireTransport):
     def _decode(self, frame: dict) -> Optional[ChatEvent]:
         e = frame["event"]
         if e == "output":
@@ -263,6 +289,11 @@ class AcpLikeFake(_ScriptedWireTransport):
         if e == "failed":
             return ChatEvent.error_(frame.get("reason", "err"), code=frame.get("code", "upstream_error"))
         return None
+
+
+# Back-compat aliases (older tests referenced these names).
+ServeLikeFake = WireFakeA
+AcpLikeFake = WireFakeB
 
 
 # ===================================================================
@@ -286,7 +317,8 @@ class FakeAgentService:
 
     async def create(self, name, wait=True, progress=None):
         if wait and progress is not None:
-            for phase in ("preparing image", "creating sandbox", "configuring agent", "warming up"):
+            for phase in ("preparing image", "creating container", "configuring agent",
+                          "starting agent", "warming up"):
                 res = progress(phase)
                 if hasattr(res, "__await__"):
                     await res
@@ -377,7 +409,7 @@ class FakeControlAPIClient:
         self._raise = raise_error
         self._gw_config = gateway_config or GatewayConfigView(
             upstream_base_url="http://up:11434/v1", default_model="m",
-            upstream_configured=True, source="live")
+            container_runtime="runc", upstream_configured=True, source="live")
         self._gw_applied = gateway_config_applied
         self.set_gateway_calls = []
         self._status = status or GatewayStatus(running=True, pid=123, control_listener="127.0.0.1:9700",
@@ -391,12 +423,10 @@ class FakeControlAPIClient:
         return self._status
 
     def create_agent(self, spec, wait=False):
-        # mirrors ControlAPIClient.create_agent: default background → one `accepted`
-        # event with a `creating` record; wait=True → progress stream then `done`.
         if self._raise:
             raise self._raise
         if wait:
-            yield {"event": "progress", "phase": "creating sandbox", "detail": ""}
+            yield {"event": "progress", "phase": "creating container", "detail": ""}
             v = AgentView(name=spec.name, kind="local", lifecycle="running", health="healthy")
             yield {"event": "done", "agent": v.to_dict()}
         else:
@@ -440,6 +470,7 @@ class FakeControlAPIClient:
         return GatewayConfigView(
             upstream_base_url=change.upstream_base_url or self._gw_config.upstream_base_url,
             default_model=change.default_model or self._gw_config.default_model,
+            container_runtime=change.container_runtime or self._gw_config.container_runtime,
             upstream_configured=True, source="live")
 
     def chat(self, name, message):

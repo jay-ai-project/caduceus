@@ -254,11 +254,13 @@ def gateway_config(
     json_out: bool = typer.Option(False, "--json"),
     upstream_url: Optional[str] = typer.Option(None, "--upstream-url", help="set upstream LLM base URL"),
     model: Optional[str] = typer.Option(None, "--model", help="set default model"),
+    runtime: Optional[str] = typer.Option(None, "--runtime", help="container runtime: runc | runsc"),
 ):
-    """View or change the gateway's `upstream_base_url` / `default_model`.
+    """View or change the gateway's `upstream_base_url` / `default_model` / `container_runtime`.
 
     Applies live when the daemon is running (no restart); otherwise edits
     `~/.caduceus/config.toml` directly (effective on next `gateway start`).
+    `--runtime` applies to newly-spawned agent containers.
     """
     from caduceus.common.dto import GatewayConfigChange
     from caduceus.common.settings import Settings
@@ -266,7 +268,7 @@ def gateway_config(
 
     client = get_client()
     up = client.is_daemon_up()
-    is_set = upstream_url is not None or model is not None
+    is_set = upstream_url is not None or model is not None or runtime is not None
 
     # ---- view (no set flags, or explicit --get) ----
     if not is_set:
@@ -278,7 +280,8 @@ def gateway_config(
         return
 
     # ---- set ----
-    change = GatewayConfigChange(upstream_base_url=upstream_url, default_model=model)
+    change = GatewayConfigChange(upstream_base_url=upstream_url, default_model=model,
+                                 container_runtime=runtime)
     try:
         gwc.validate_change(change)
     except ValueError as exc:
@@ -294,6 +297,24 @@ def gateway_config(
         settings = Settings.from_env_and_file(path)
         render.render_gateway_config_applied(
             gwc.view_from_settings(settings, source="file"), change, live=False, as_json=json_out)
+
+
+# ================= doctor =================
+@app.command("doctor")
+def doctor(json_out: bool = typer.Option(False, "--json")):
+    """Check environment readiness: Docker, hermes image, container runtime (gVisor),
+    and daemon reachability. Prints gVisor install guidance when runsc is desired but
+    missing; never installs anything. Exit code is non-zero if a required check fails.
+    """
+    from caduceus.common.settings import Settings
+    from caduceus.config import doctor as doc
+
+    settings = Settings.from_env_and_file(_config_path())
+    daemon_up = get_client().is_daemon_up()
+    report = doc.run_doctor(container_runtime=settings.container_runtime, daemon_up=daemon_up)
+    render.render_doctor(report, json_out)
+    if not report.ok:
+        raise typer.Exit(EXIT_RUNTIME)
 
 
 def main() -> None:

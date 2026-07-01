@@ -75,6 +75,8 @@ def _gateway_env_warnings(view, change=None) -> None:
             touched.add("upstream_base_url")
         if change.default_model is not None:
             touched.add("default_model")
+        if change.container_runtime is not None:
+            touched.add("container_runtime")
     for key in view.env_override:
         if touched is None or key in touched:
             error(f"warning: ${ENV_KEYS.get(key, key)} is set and overrides config.toml on (re)start")
@@ -86,6 +88,7 @@ def render_gateway_config(view, as_json: bool) -> None:
         return
     emit(f"upstream_base_url : {view.upstream_base_url or '(not set)'}")
     emit(f"default_model     : {view.default_model or '(not set)'}")
+    emit(f"container_runtime : {view.container_runtime}")
     emit(f"configured        : {'yes' if view.upstream_configured else 'no'}")
     emit(f"source            : {view.source}")
     _gateway_env_warnings(view)
@@ -100,10 +103,26 @@ def render_gateway_config_applied(view, change, *, live: bool, as_json: bool) ->
         changed.append(f"upstream_base_url={view.upstream_base_url}")
     if change.default_model is not None:
         changed.append(f"default_model={view.default_model}")
+    if change.container_runtime is not None:
+        changed.append(f"container_runtime={view.container_runtime}")
     where = ("applied live (no restart)" if live
              else "persisted to config.toml — effective on next `gateway start`")
     emit(f"updated {', '.join(changed)} — {where}")
     _gateway_env_warnings(view, change)
+
+
+def render_doctor(report, as_json: bool) -> None:
+    if as_json:
+        emit_json(report.to_dict())
+        return
+    for c in report.checks:
+        mark = "ok " if c.ok else ("FAIL" if c.required else "warn")
+        emit(f"  [{mark}] {c.name}: {c.detail}")
+        if c.hint and not c.ok:
+            for line in c.hint.splitlines():
+                error(f"        {line}")
+    emit("")
+    emit("doctor: OK" if report.ok else "doctor: problems found (see above)")
 
 
 def render_config(snapshot, as_json: bool) -> None:

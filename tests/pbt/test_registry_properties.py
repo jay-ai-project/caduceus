@@ -16,7 +16,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from caduceus.agents.names import SANDBOX_PREFIX, sandbox_name, validate_name
+from caduceus.agents.names import CONTAINER_PREFIX, container_name, validate_name
 from caduceus.agents.registry import Registry
 from caduceus.agents.service import AgentService
 from caduceus.agents.tokens import MIN_TOKEN_LEN, mint_token
@@ -26,14 +26,14 @@ from tests.fakes import FakeHealthChecker, FakeImageBuilder, FakeProvisioner
 
 AIGW = "http://172.17.0.1:9701/v1"
 
-_ascii_name = st.from_regex(r"\A[A-Za-z0-9._+-]{1,20}\Z")
+_ascii_name = st.from_regex(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,19}\Z")
 
 
 # ---- pure properties --------------------------------------------------
 @given(_ascii_name)
-def test_p_u2_2_sandbox_invariant(name):
+def test_p_u2_2_container_invariant(name):
     v = validate_name(name)
-    assert sandbox_name(v) == SANDBOX_PREFIX + v
+    assert container_name(v) == CONTAINER_PREFIX + v
 
 
 @given(st.integers(min_value=32, max_value=64))  # we only ever mint with >= 32 bytes (default)

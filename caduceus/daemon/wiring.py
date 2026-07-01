@@ -4,7 +4,7 @@ This is the single place the units are concretely connected: U2's Provisioner/
 HealthChecker/AgentService, U3's ChatService/Supervisor (with injected callables),
 U1's AI-Gateway (with `token_lookup` bound to the Registry), and U4's ConfigService.
 
-Real sbx/docker/hermes calls only happen when these services are *used* (provisioning,
+Real docker/hermes calls only happen when these services are *used* (provisioning,
 chat, sweep) — construction here is side-effect-free, so wiring is importable/testable.
 """
 
@@ -19,12 +19,12 @@ from typing import Optional
 
 from caduceus.agents.health import HealthChecker, HealthProbes
 from caduceus.agents.images import ImageBuilder
-from caduceus.agents.provisioner import SbxProvisioner
+from caduceus.agents.provisioner import DockerProvisioner
 from caduceus.agents.registry import Registry
 from caduceus.agents.service import AgentService
 from caduceus.common.dto import ConfigSnapshot, ReloadStrategy
 from caduceus.common.logging import get_logger
-from caduceus.common.models import AgentKind, AgentRecord, Lifecycle
+from caduceus.common.models import AgentKind, AgentRecord, HealthLevel, Lifecycle
 from caduceus.common.settings import Settings
 from caduceus.config.editor import ConfigEditor
 from caduceus.config.service import ConfigService
@@ -37,7 +37,7 @@ log = get_logger("caduceus.daemon.wiring")
 class Services:
     settings: Settings
     registry: Registry
-    provisioner: SbxProvisioner
+    provisioner: DockerProvisioner
     agent_service: AgentService
     chat_service: "object"
     config_service: ConfigService
@@ -91,36 +91,27 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
     registry = Registry(sd / "state.json")
     registry.load()
 
-    provisioner = SbxProvisioner(aigateway_url=aigateway_url)
+    provisioner = DockerProvisioner()
     images = ImageBuilder(context_dir=_repo_images_dir())
 
     async def _upstream_reachable() -> bool:
         return await _endpoint_reachable(settings.upstream_base_url)
 
-    async def _transport_healthy(rec: AgentRecord) -> Optional[bool]:
-        # Local agents are driven over `hermes acp` (stdio) — there is no
-        # persistent agent process to probe; spawning a throwaway `hermes acp`
-        # every deep-health sweep (30s) just re-runs hermes' provider/model
-        # probing (a burst of upstream 404s) for no signal. The running sandbox
-        # (shallow check) is the liveness signal; real ACP failures surface on
-        # chat (the pooled transport is evicted + respawned). Skip → None.
-        if rec.kind == AgentKind.local:
-            return None
-        # Remote agents have a persistent `hermes serve` endpoint worth probing.
+    async def _agent_reachable(rec: AgentRecord) -> bool:
+        # Shallow liveness for both local & remote: the hermes API server answers
+        # `GET /health` (no LLM spend). Uses a throwaway transport (own HTTP client).
         t = Transport.for_agent(rec)
         try:
             hs = await t.health()
-            return hs.level.value == "healthy"
+            return hs.level == HealthLevel.healthy
         except Exception:  # noqa: BLE001
             return False
         finally:
             await t.close()
 
     probes = HealthProbes(
-        sandbox_status=provisioner.status,
-        endpoint_reachable=_endpoint_reachable,
+        agent_reachable=_agent_reachable,
         upstream_reachable=_upstream_reachable,
-        transport_healthy=_transport_healthy,
     )
     health_checker = HealthChecker(probes)
 
@@ -131,20 +122,20 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
     chat_service = ChatService(registry, health_check=health_checker.check,
                                transport_factory=Transport.for_agent)
 
-    # AgentService tears down a pooled chat transport on stop/remove (the agent's
-    # `hermes acp` process must not outlive its sandbox), and warms the pooled
-    # transport after a successful provision so the first chat is instant (BR-P6).
+    # AgentService tears down a pooled chat transport on stop/remove, and warms the
+    # pooled transport after a successful provision so the first chat is instant (BR-P6).
     agent_service = AgentService(registry, provisioner, images, health_checker,
                                  aigateway_url=aigateway_url,
+                                 runtime_provider=lambda: settings.container_runtime,
                                  transport_closer=chat_service.close_agent,
                                  warm_hook=chat_service.warm)
 
     async def _restart(rec: AgentRecord) -> None:
-        # ACP transport: there is no serve process/port — "restart" means ensure
-        # the sandbox is running again (BR-W2). Chat re-spawns `hermes acp` on demand.
-        if rec.sandbox_name is None:
-            raise RuntimeError("cannot restart: missing sandbox")
-        await provisioner.start(rec.sandbox_name)
+        # "restart" = ensure the container is running again (BR-W2/BR-O3). The hermes
+        # API server boots with it; chat reconnects over HTTP.
+        if rec.container_name is None:
+            raise RuntimeError("cannot restart: missing container")
+        await provisioner.start(rec.container_name)
         rec.lifecycle = Lifecycle.running
         rec.updated_at = _now()
         await registry.upsert(rec)

@@ -17,7 +17,7 @@ def test_roundtrip_minimal():
 def test_roundtrip_full():
     r = AgentRecord(
         name="a", kind=AgentKind.remote, token="t", endpoint="http://x",
-        sandbox_name="cad-a", serve_port=40000, serve_auth="s",
+        container_name="cad-a", host_port=49001, runtime="runsc",
         model_alias="default", session_id="sess", lifecycle=Lifecycle.running,
         last_health=HealthStatus(HealthLevel.healthy, True, True, "ok", "t"),
         created_at="c", updated_at="u",

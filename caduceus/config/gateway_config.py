@@ -23,10 +23,14 @@ from caduceus.common.settings import Settings
 ENV_KEYS = {
     "upstream_base_url": "CADUCEUS_UPSTREAM_BASE_URL",
     "default_model": "CADUCEUS_DEFAULT_MODEL",
+    "container_runtime": "CADUCEUS_CONTAINER_RUNTIME",
 }
 
+#: Allowed container runtimes (U8, BR-R3).
+VALID_RUNTIMES = ("runc", "runsc")
 
-# ---- validation (light; BR-GC2/GC3) -------------------------------
+
+# ---- validation (light; BR-GC2/GC3/R3) ----------------------------
 def validate_url(url: str | None) -> None:
     if not url or not url.strip():
         raise ValueError("upstream_base_url must not be empty")
@@ -42,13 +46,20 @@ def validate_model(model: str | None) -> None:
         raise ValueError("default_model must not be empty")
 
 
+def validate_runtime(runtime: str | None) -> None:
+    if not runtime or runtime.strip() not in VALID_RUNTIMES:
+        raise ValueError(f"container_runtime must be one of {', '.join(VALID_RUNTIMES)}")
+
+
 def validate_change(change: GatewayConfigChange) -> None:
     if change.is_empty():
-        raise ValueError("no changes requested (provide --upstream-url and/or --model)")
+        raise ValueError("no changes requested (provide --upstream-url, --model, and/or --runtime)")
     if change.upstream_base_url is not None:
         validate_url(change.upstream_base_url)
     if change.default_model is not None:
         validate_model(change.default_model)
+    if change.container_runtime is not None:
+        validate_runtime(change.container_runtime)
 
 
 # ---- atomic, key-preserving config.toml store (BR-GC4) ------------
@@ -102,6 +113,8 @@ def apply_to_toml(path: "str | os.PathLike", change: GatewayConfigChange) -> Non
         data["upstream_base_url"] = change.upstream_base_url
     if change.default_model is not None:
         data["default_model"] = change.default_model
+    if change.container_runtime is not None:
+        data["container_runtime"] = change.container_runtime
     atomic_write_toml(path, data)
 
 
@@ -114,6 +127,7 @@ def view_from_settings(settings: Settings, source: str) -> GatewayConfigView:
     return GatewayConfigView(
         upstream_base_url=settings.upstream_base_url,
         default_model=settings.default_model,
+        container_runtime=settings.container_runtime,
         upstream_configured=not settings.missing_required(),
         source=source,
         env_override=env_override_keys(),
@@ -139,4 +153,7 @@ class GatewayConfigService:
             self.settings.upstream_base_url = change.upstream_base_url
         if change.default_model is not None:
             self.settings.default_model = change.default_model
+        if change.container_runtime is not None:
+            # Applies to newly-spawned containers (existing keep their runtime; BR-R3).
+            self.settings.container_runtime = change.container_runtime
         return self.view()

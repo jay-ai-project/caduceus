@@ -1,14 +1,14 @@
 """Supervisor — process supervision for managed agents (RES-5, BR-S1..S7).
 
-A periodic background sweep runs deep health per agent and, for **local** agents,
-restarts a dead `hermes serve` with exponential back-off and a circuit breaker.
-**Remote** agents are probe/reconnect-only — never restarted (BR-A10/BR-S1).
+A periodic background sweep runs deep health (HTTP `/health`) per agent and, for
+**local** agents, restarts a dead container with exponential back-off and a circuit
+breaker. **Remote** agents are probe/reconnect-only — never restarted (BR-A10/BR-S1).
 
 Collaborators are injected callables so U3 stays decoupled (U4 wires the real U2
 Provisioner/Registry/HealthChecker at composition time):
   - `list_agents() -> list[AgentRecord]`        (sync or async)
   - `health_check(rec, deep) -> HealthStatus`   (deep probe; no LLM spend)
-  - `restart(rec) -> None`                      (relaunch local serve; raises on failure)
+  - `restart(rec) -> None`                      (docker start the container; raises on failure)
   - `mark_failed(name) -> None`                 (persist Lifecycle.failed)
 
 The sweep loop is fault-isolated: any probe/restart exception is logged and treated as

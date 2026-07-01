@@ -29,6 +29,7 @@ async def test_get_gateway_config(tmp_path):
         body = (await c.get("/gateway/config")).json()
     assert body == {
         "upstream_base_url": "http://up/v1", "default_model": "m",
+        "container_runtime": "runc",
         "upstream_configured": True, "source": "live", "env_override": [],
     }
 

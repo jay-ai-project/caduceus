@@ -25,7 +25,8 @@ async def test_create_happy(tmp_path):
     rec = await svc.create("my-agent-1")
 
     assert rec.kind == AgentKind.local
-    assert rec.sandbox_name == "cad-my-agent-1"
+    assert rec.container_name == "cad-my-agent-1"
+    assert rec.endpoint and rec.endpoint.startswith("http://127.0.0.1:")
     assert rec.lifecycle == Lifecycle.running
     assert reg.get("my-agent-1") is not None
     # provider-config invariant (P-U2-3): config points at the AI-Gateway, model=default
@@ -44,13 +45,13 @@ async def test_create_duplicate_rejected(tmp_path):
 
 
 async def test_create_rollback_on_failure(tmp_path):
-    # write_file runs after the sandbox is created → exercises the compensation path
-    prov = FakeProvisioner(fail_on="write_file")
+    # put_file runs after the container is created → exercises the compensation path
+    prov = FakeProvisioner(fail_on="put_file")
     reg, svc, _ = make_service(tmp_path, prov)
     with pytest.raises(ProxyError):
         await svc.create("a")
-    assert reg.get("a") is None          # not persisted
-    assert "cad-a" not in prov.sandboxes  # compensated (sandbox removed)
+    assert reg.get("a") is None            # not persisted
+    assert "cad-a" not in prov.containers  # compensated (container removed)
 
 
 async def test_register_returns_guidance(tmp_path):
@@ -67,7 +68,7 @@ async def test_remove_local_tears_down(tmp_path):
     await svc.create("a")
     await svc.remove("a")
     assert reg.get("a") is None
-    assert "cad-a" not in prov.sandboxes
+    assert "cad-a" not in prov.containers
 
 
 async def test_stop_start_remote_unsupported(tmp_path):
@@ -91,7 +92,7 @@ class _CountingHealth:
     def __init__(self):
         self.calls = 0
 
-    async def check(self, rec, deep=False, sandbox_status=None):
+    async def check(self, rec, deep=False):
         self.calls += 1
         from caduceus.common.models import HealthLevel, HealthStatus
         return HealthStatus(HealthLevel.healthy, shallow=True)
@@ -103,37 +104,37 @@ async def test_list_probe_false_skips_health_check(tmp_path):
     prov = FakeProvisioner()
     svc = AgentService(reg, prov, FakeImageBuilder(), hc, AIGW)
     await svc.create("a1")
-    create_calls = hc.calls  # create does one best-effort probe
+    create_calls = hc.calls  # create does readiness + best-effort probes
 
     prov.calls.clear()
     await svc.list(probe=False)
     assert hc.calls == create_calls              # no extra health handshake on cheap list
-    assert "list_statuses" not in prov.calls     # and no sbx reconcile — registry-only (instant)
+    assert "statuses" not in prov.calls          # and no docker reconcile — registry-only (instant)
 
     await svc.list(probe=True)
     assert hc.calls == create_calls + 1          # one probe per agent when requested
-    assert "list_statuses" in prov.calls         # full reconcile on the authoritative path
+    assert "statuses" in prov.calls              # full live reconcile on the authoritative path
 
 
-# ---- U7: single-snapshot list, async create, reconcile ----
+# ---- U8: real-time single-snapshot list, async create, reconcile ----
 async def test_list_probe_true_single_snapshot(tmp_path):
-    # One `sbx ls` (list_statuses) per `list`, regardless of agent count (BR-P1).
+    # One live `docker ps` (statuses) per `list`, regardless of agent count (BR-D3).
     reg, svc, prov = make_service(tmp_path)
     await svc.create("a1")
     await svc.create("a2")
     await svc.create("a3")
     prov.calls.clear()
     await svc.list(probe=True)
-    assert prov.calls.count("list_statuses") == 1
-    assert "status" not in prov.calls            # no per-agent re-probe
+    assert prov.calls.count("statuses") == 1
+    assert "status" not in prov.calls            # no per-agent `docker inspect`
 
 
-async def test_list_non_authoritative_snapshot_keeps_lifecycle(tmp_path):
-    # sbx ls failure (ok=False) must not downgrade lifecycle (BR-P2).
+async def test_list_statuses_failure_keeps_lifecycle(tmp_path):
+    # `docker ps` failure must not crash `agent ls` nor downgrade lifecycle (BR-D3).
     reg, svc, prov = make_service(tmp_path)
     await svc.create("a1")
     assert reg.get("a1").lifecycle == Lifecycle.running
-    prov.snapshot_ok = False
+    prov.statuses_raises = True
     recs = await svc.list(probe=True)
     assert recs[0].lifecycle == Lifecycle.running
     assert recs[0].last_health.level.value == "unknown"
@@ -150,7 +151,7 @@ async def test_create_background_returns_creating_then_ready(tmp_path):
 
 
 async def test_create_background_failure_marks_failed(tmp_path):
-    prov = FakeProvisioner(fail_on="write_file")
+    prov = FakeProvisioner(fail_on="put_file")
     reg, svc, _ = make_service(tmp_path, prov)
     rec = await svc.create("bad", wait=False)
     assert rec.lifecycle == Lifecycle.creating
@@ -158,7 +159,7 @@ async def test_create_background_failure_marks_failed(tmp_path):
     got = reg.get("bad")
     assert got.lifecycle == Lifecycle.failed             # persisted failed (BR-P5)
     assert "create failed" in (got.last_health.detail or "")
-    assert "cad-bad" not in prov.sandboxes               # compensated
+    assert "cad-bad" not in prov.containers              # compensated
 
 
 async def test_create_duplicate_inflight_rejected(tmp_path):

@@ -47,12 +47,29 @@ def render_hermes_config(aigateway_url: str, model_alias: str = "default", api_k
     return "\n".join(lines) + "\n"
 
 
+def api_server_env(token: str, port: int = 8642) -> dict[str, str]:
+    """Env that enables the hermes API server inside the agent container (U8).
+
+    `hermes gateway run` starts the API-server platform when these are set. The
+    bearer key equals the agent's caduceus token (single credential, BR-N2/D4).
+    """
+    return {
+        "API_SERVER_ENABLED": "true",
+        "API_SERVER_KEY": token,
+        "API_SERVER_HOST": "0.0.0.0",   # inside the container only; host-exposed on loopback
+        "API_SERVER_PORT": str(port),
+    }
+
+
 def remote_setup_guidance(aigateway_url: str, token: str, model_alias: str = "default") -> str:
     """Instructions returned on `register` so the user can route a remote hermes
-    through caduceus (Q2=A; caduceus cannot auto-configure remote in v1)."""
+    through caduceus (Q7; caduceus cannot auto-configure remote)."""
     return (
-        "To route this remote hermes through caduceus, configure its LLM provider:\n"
-        f"  base_url = {aigateway_url}\n"
-        f"  api_key (OPENAI_API_KEY) = {token}\n"
-        f"  model = {model_alias}"
+        "To register this remote hermes with caduceus:\n"
+        "  1. Enable its API server (hermes gateway run) with a bearer key and reachable URL;\n"
+        "     caduceus talks to it over HTTP/SSE at that URL with the token below.\n"
+        "  2. Route its LLM provider through the caduceus AI-Gateway:\n"
+        f"       base_url = {aigateway_url}\n"
+        f"       api_key (OPENAI_API_KEY) = {token}\n"
+        f"       model = {model_alias}"
     )

@@ -1,4 +1,4 @@
-"""PURE name validation + sandbox naming (BR-A1, BR-A2)."""
+"""PURE name validation + container naming (BR-A1, BR-A2 / U8 BR-D1)."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ import re
 
 from caduceus.common.errors import invalid_request_error
 
-SANDBOX_PREFIX = "cad-"
+CONTAINER_PREFIX = "cad-"
 MAX_NAME_LEN = 50
-_NAME_RE = re.compile(r"^[A-Za-z0-9._+-]+$")  # sbx-compatible
+#: Docker-safe: start alphanumeric, then letters/digits/._- (no '+', unlike sbx).
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def validate_name(name: str) -> str:
@@ -20,11 +21,12 @@ def validate_name(name: str) -> str:
         raise invalid_request_error(f"Agent name too long (max {MAX_NAME_LEN})")
     if not _NAME_RE.match(n):
         raise invalid_request_error(
-            "Agent name may contain only letters, digits, and '.', '_', '+', '-'"
+            "Agent name must start with a letter or digit and contain only "
+            "letters, digits, and '.', '_', '-'"
         )
     return n
 
 
-def sandbox_name(name: str) -> str:
-    """Map a (validated) agent name to its sbx sandbox name."""
-    return SANDBOX_PREFIX + name
+def container_name(name: str) -> str:
+    """Map a (validated) agent name to its Docker container name."""
+    return CONTAINER_PREFIX + name

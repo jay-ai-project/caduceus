@@ -215,11 +215,11 @@ def build_control_app(services, status_provider=None) -> FastAPI:
         rec = registry.get(name)
         if rec is None:
             return _err(ProxyError(404, "invalid_request_error", f"no such agent '{name}'"))
-        if rec.kind == AgentKind.remote or not rec.sandbox_name:
+        if rec.kind == AgentKind.remote or not rec.container_name:
             return _err(ReadOnlyError("logs are available for local agents only"))
 
         async def gen():
-            async for line in services.provisioner.logs(rec.sandbox_name, follow=follow):
+            async for line in services.provisioner.logs(rec.container_name, follow=follow):
                 yield _sse({"line": line})
 
         return StreamingResponse(gen(), media_type="text/event-stream")

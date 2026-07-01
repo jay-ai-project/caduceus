@@ -63,14 +63,19 @@ class HealthStatus:
 class AgentRecord:
     name: str
     kind: AgentKind
-    token: str  # bearer for the caduceus AI-Gateway
+    token: str  # bearer for the caduceus AI-Gateway AND the agent's API_SERVER_KEY (U8)
+    #: base URL of the agent's hermes API server. Local: http://127.0.0.1:<host_port>
+    #: (set after the container publishes its port); remote: the user-registered URL.
     endpoint: Optional[str] = None
-    sandbox_name: Optional[str] = None
-    #: host path bind-mounted into the sandbox (same path inside) — the agent's
+    #: Docker container name (`cad-<name>`) for local agents (U8; was `sandbox_name`).
+    container_name: Optional[str] = None
+    #: host path bind-mounted into the container (same path inside) — the agent's
     #: working dir, so files it writes there are host-visible & persist.
     workspace_path: Optional[str] = None
-    serve_port: Optional[int] = None
-    serve_auth: Optional[str] = None  # credential for the agent's `hermes serve`
+    #: published host loopback port mapped to the container's 8642 (U8; was `serve_port`).
+    host_port: Optional[int] = None
+    #: container runtime used at spawn: "runc" (default) | "runsc" (gVisor). Informational.
+    runtime: str = "runc"
     model_alias: str = "default"
     session_id: Optional[str] = None
     lifecycle: Lifecycle = Lifecycle.creating
@@ -84,10 +89,10 @@ class AgentRecord:
             "kind": self.kind.value,
             "token": self.token,
             "endpoint": self.endpoint,
-            "sandbox_name": self.sandbox_name,
+            "container_name": self.container_name,
             "workspace_path": self.workspace_path,
-            "serve_port": self.serve_port,
-            "serve_auth": self.serve_auth,
+            "host_port": self.host_port,
+            "runtime": self.runtime,
             "model_alias": self.model_alias,
             "session_id": self.session_id,
             "lifecycle": self.lifecycle.value,
@@ -104,10 +109,10 @@ class AgentRecord:
             kind=AgentKind(d["kind"]),
             token=d["token"],
             endpoint=d.get("endpoint"),
-            sandbox_name=d.get("sandbox_name"),
+            container_name=d.get("container_name"),
             workspace_path=d.get("workspace_path"),
-            serve_port=d.get("serve_port"),
-            serve_auth=d.get("serve_auth"),
+            host_port=d.get("host_port"),
+            runtime=d.get("runtime", "runc"),
             model_alias=d.get("model_alias", "default"),
             session_id=d.get("session_id"),
             lifecycle=Lifecycle(d.get("lifecycle", "creating")),

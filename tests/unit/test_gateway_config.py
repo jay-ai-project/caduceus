@@ -31,6 +31,33 @@ def test_validate_change_bad_model():
         gwc.validate_change(GatewayConfigChange(default_model="   "))
 
 
+# ---- container runtime (U8, BR-R3) ----
+@pytest.mark.parametrize("rt", ["runc", "runsc"])
+def test_validate_runtime_ok(rt):
+    gwc.validate_runtime(rt)  # no raise
+
+
+@pytest.mark.parametrize("rt", ["", "  ", "docker", "gvisor", "RunC"])
+def test_validate_runtime_bad(rt):
+    with pytest.raises(ValueError):
+        gwc.validate_runtime(rt)
+
+
+def test_validate_change_bad_runtime():
+    with pytest.raises(ValueError):
+        gwc.validate_change(GatewayConfigChange(container_runtime="nope"))
+
+
+def test_service_apply_runtime_hot_applies(tmp_path):
+    p = tmp_path / "config.toml"
+    settings = Settings(upstream_base_url="http://h/v1", default_model="m")
+    svc = gwc.GatewayConfigService(settings, config_path=p)
+    view = svc.apply(GatewayConfigChange(container_runtime="runsc"))
+    assert settings.container_runtime == "runsc"           # live object mutated
+    assert gwc.load_toml(p)["container_runtime"] == "runsc"  # persisted
+    assert view.container_runtime == "runsc"
+
+
 def test_change_trims_and_is_empty():
     c = GatewayConfigChange(upstream_base_url="  http://h  ", default_model=None)
     assert c.upstream_base_url == "http://h"

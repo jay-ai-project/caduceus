@@ -73,19 +73,17 @@ def test_apply_change_then_satisfies(snap_skills, change):
 
 
 # ---- PBT-U4-3: projection never leaks secrets ---------------------
-@given(name=_names, token=st.text(min_size=1, max_size=12), auth=st.text(min_size=1, max_size=12))
-def test_agentview_no_secret(name, token, auth):
-    # distinctive secrets so the value check can't collide with projected fields
+@given(name=_names, token=st.text(min_size=1, max_size=12))
+def test_agentview_no_secret(name, token):
+    # distinctive secret so the value check can't collide with projected fields
     secret_token = "SECRET-TOK-" + token
-    secret_auth = "SECRET-AUTH-" + auth
     rec = make_agent(name=name)
     rec.token = secret_token
-    rec.serve_auth = secret_auth
     view = AgentView.from_record(rec, HealthStatus(HealthLevel.healthy, shallow=True))
     d = view.to_dict()
-    # no secret-bearing keys, and the secret values are never projected
-    assert "token" not in d and "serve_auth" not in d
-    assert secret_token not in str(d) and secret_auth not in str(d)
+    # no secret-bearing key, and the token value is never projected
+    assert "token" not in d
+    assert secret_token not in str(d)
 
 
 # ---- PBT-U4-4: remote agents are read-only ------------------------

@@ -3,7 +3,7 @@
 These are the Control API <-> CLI data shapes (dataclasses with explicit
 `to_dict`/`from_dict` for stable round-trips) plus `apply_change`, a **pure**
 (no-I/O) reducer over `ConfigSnapshot`, and the `ReloadStrategy` seam (Q2).
-Secrets (`token`/`serve_auth`) are never projected into `AgentView`.
+The agent `token` is never projected into `AgentView`.
 """
 
 from __future__ import annotations
@@ -117,33 +117,40 @@ class GatewayStatus:
 # ---- gateway upstream config (U6) ---------------------------------
 @dataclass
 class GatewayConfigChange:
-    """Edit intent for the gateway's upstream settings. `None` = leave unchanged;
-    at least one field must be set (BR-GC1). Values are trimmed."""
+    """Edit intent for the gateway's config. `None` = leave unchanged; at least one
+    field must be set (BR-GC1). Values are trimmed. `container_runtime` = U8."""
     upstream_base_url: Optional[str] = None
     default_model: Optional[str] = None
+    container_runtime: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.upstream_base_url is not None:
             self.upstream_base_url = self.upstream_base_url.strip()
         if self.default_model is not None:
             self.default_model = self.default_model.strip()
+        if self.container_runtime is not None:
+            self.container_runtime = self.container_runtime.strip()
 
     def is_empty(self) -> bool:
-        return self.upstream_base_url is None and self.default_model is None
+        return (self.upstream_base_url is None and self.default_model is None
+                and self.container_runtime is None)
 
     def to_dict(self) -> dict:
-        return {"upstream_base_url": self.upstream_base_url, "default_model": self.default_model}
+        return {"upstream_base_url": self.upstream_base_url, "default_model": self.default_model,
+                "container_runtime": self.container_runtime}
 
     @classmethod
     def from_dict(cls, d: dict) -> "GatewayConfigChange":
-        return cls(upstream_base_url=d.get("upstream_base_url"), default_model=d.get("default_model"))
+        return cls(upstream_base_url=d.get("upstream_base_url"), default_model=d.get("default_model"),
+                   container_runtime=d.get("container_runtime"))
 
 
 @dataclass
 class GatewayConfigView:
-    """Secret-free projection of the gateway's effective upstream config (BR-GC8)."""
+    """Secret-free projection of the gateway's effective config (BR-GC8)."""
     upstream_base_url: Optional[str] = None
     default_model: Optional[str] = None
+    container_runtime: str = "runc"
     upstream_configured: bool = False
     source: str = "file"                      # "live" (running daemon) | "file"
     env_override: list[str] = field(default_factory=list)  # keys forced by env vars
@@ -151,6 +158,7 @@ class GatewayConfigView:
     def to_dict(self) -> dict:
         return {
             "upstream_base_url": self.upstream_base_url, "default_model": self.default_model,
+            "container_runtime": self.container_runtime,
             "upstream_configured": self.upstream_configured, "source": self.source,
             "env_override": list(self.env_override),
         }
@@ -159,6 +167,7 @@ class GatewayConfigView:
     def from_dict(cls, d: dict) -> "GatewayConfigView":
         return cls(
             upstream_base_url=d.get("upstream_base_url"), default_model=d.get("default_model"),
+            container_runtime=d.get("container_runtime", "runc"),
             upstream_configured=d.get("upstream_configured", False), source=d.get("source", "file"),
             env_override=list(d.get("env_override", [])),
         )

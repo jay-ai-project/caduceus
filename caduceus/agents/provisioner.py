@@ -1,177 +1,177 @@
-"""Provisioner — all sbx/docker interactions for local agents (BR-A12).
+"""Provisioner — all Docker interactions for local agents (U8; was sbx-based).
 
-`Provisioner` is the interface (Protocol) consumed by AgentService; `SbxProvisioner`
-is the real implementation over the `sbx` CLI. Unit tests use a FakeProvisioner;
-the real impl is exercised in Build & Test integration.
+`Provisioner` is the interface (Protocol) consumed by AgentService; `DockerProvisioner`
+is the real implementation over the `docker` CLI. Unit tests use a FakeProvisioner; the
+real impl is exercised in Build & Test integration.
 
-Implementation note: exact `sbx` sub-commands and the in-sandbox hermes config
-path were validated in Build & Test (2026-06-30). Local agents are driven over
-`hermes acp` (stdio) by the AcpTransport, so the provisioner only manages sandbox
-lifecycle + config I/O — there is no `hermes serve` start / port publishing.
+U8: local agents run as **plain Docker containers** running the hermes API server
+(`hermes gateway run`, port 8642). caduceus reaches them over HTTP on a published host
+**loopback** port. The container is created (port allocated), the hermes LLM config is
+copied in, then the container is started so the API server boots with config present.
+Status is queried **live** (no cache). Optional gVisor runtime via `--runtime runsc`
+(fail-fast if configured but unavailable).
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Optional, Protocol
 
 from caduceus.common.errors import upstream_error
 from caduceus.common.logging import get_logger
 
 log = get_logger("caduceus.provisioner")
 
-# In-sandbox hermes config path (HERMES_HOME); validated in Build & Test.
+#: In-container hermes config path (HERMES_HOME); dir exists in the image.
 HERMES_CONFIG_PATH = "/root/.hermes/config.yaml"
-
-
-@dataclass
-class SandboxSnapshot:
-    """A single point-in-time projection of the sandbox runtime (one `sbx ls`).
-
-    `ok=False` means the underlying `sbx ls` errored/timed out — the snapshot is
-    **non-authoritative** and callers MUST NOT downgrade lifecycle from it (BR-P2).
-    A sandbox absent from an *authoritative* snapshot is `missing`.
-    """
-
-    statuses: dict[str, str] = field(default_factory=dict)  # name -> "running"|"stopped"
-    ok: bool = True
-
-    def get(self, sandbox: str | None) -> str:
-        if not sandbox:
-            return "missing"
-        return self.statuses.get(sandbox, "missing")
-
-
-def _parse_sbx_ls(out: bytes) -> dict[str, str]:
-    """Parse `sbx ls --json` → {name: "running"|"stopped"} (Build & Test, Finding H)."""
-    import json as _json
-
-    try:
-        data = _json.loads(out or "{}")
-    except (ValueError, TypeError):
-        return {}
-    items = data.get("sandboxes", []) if isinstance(data, dict) else data
-    result: dict[str, str] = {}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        name = item.get("name") or item.get("Name")
-        if not name:
-            continue
-        state = (item.get("status") or item.get("State") or "").lower()
-        result[name] = "running" if "run" in state else "stopped"
-    return result
+#: The API-server port hermes listens on inside the container.
+CONTAINER_API_PORT = 8642
 
 
 class Provisioner(Protocol):
-    def workspace_for(self, sandbox: str) -> str: ...
-    async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None: ...
-    async def write_file(self, sandbox: str, path: str, content: str) -> None: ...
-    async def stop(self, sandbox: str) -> None: ...
-    async def start(self, sandbox: str) -> None: ...
-    async def remove(self, sandbox: str) -> None: ...
-    async def status(self, sandbox: str) -> str: ...  # running | stopped | missing
-    async def list_statuses(self) -> SandboxSnapshot: ...  # one `sbx ls` for all sandboxes
-    def logs(self, sandbox: str, follow: bool = False) -> AsyncIterator[str]: ...
+    def workspace_for(self, container: str) -> str: ...
+    async def create(self, container: str, image: str, env: dict[str, str], runtime: str) -> None: ...
+    async def host_port(self, container: str) -> Optional[int]: ...
+    async def put_file(self, container: str, path: str, content: str) -> None: ...
+    async def stop(self, container: str) -> None: ...
+    async def start(self, container: str) -> None: ...
+    async def remove(self, container: str) -> None: ...
+    async def status(self, container: str) -> str: ...  # running | stopped | missing
+    async def statuses(self) -> dict[str, str]: ...      # live `docker ps -a`, one call
+    def logs(self, container: str, follow: bool = False) -> AsyncIterator[str]: ...
 
 
-class SbxProvisioner:
-    """Real provisioner over the `sbx` CLI."""
+class RuntimeUnavailable(Exception):
+    """Configured container runtime (e.g. runsc) is not registered with Docker (BR-R2)."""
 
-    def __init__(self, sbx_bin: str = "sbx", aigateway_url: str = "", default_timeout: float = 30.0,
+
+class DockerProvisioner:
+    """Real provisioner over the `docker` CLI."""
+
+    def __init__(self, docker_bin: str = "docker", default_timeout: float = 30.0,
                  workspace_root: str = "~/.caduceus/agents"):
-        self._sbx = sbx_bin
-        self._aigateway_url = aigateway_url
+        self._docker = docker_bin
         self._timeout = default_timeout
-        # `sbx create shell` requires a host workspace PATH (mounted in-sandbox).
-        # caduceus agents don't share the host repo, so each gets a dedicated dir.
         self._workspace_root = Path(workspace_root).expanduser()
 
-    async def _run(self, *args: str, timeout: float | None = None, stdin: bytes | None = None) -> tuple[int, bytes, bytes]:
+    async def _run(self, *args: str, timeout: float | None = None,
+                   stdin: bytes | None = None) -> tuple[int, bytes, bytes]:
         proc = await asyncio.create_subprocess_exec(
-            self._sbx, *args,
+            self._docker, *args,
             stdin=asyncio.subprocess.PIPE if stdin is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            out, err = await asyncio.wait_for(proc.communicate(input=stdin), timeout=timeout or self._timeout)
+            out, err = await asyncio.wait_for(proc.communicate(input=stdin),
+                                              timeout=timeout or self._timeout)
         except asyncio.TimeoutError:
             proc.kill()
-            raise upstream_error(f"sbx {args[0]} timed out", status=504)
+            raise upstream_error(f"docker {args[0]} timed out", status=504)
         return proc.returncode, out, err
 
-    async def _check(self, *args: str, timeout: float | None = None, stdin: bytes | None = None) -> bytes:
+    async def _check(self, *args: str, timeout: float | None = None,
+                     stdin: bytes | None = None) -> bytes:
         rc, out, err = await self._run(*args, timeout=timeout, stdin=stdin)
         if rc != 0:
-            raise upstream_error(f"sbx {args[0]} failed (rc={rc}): {err.decode('utf-8', 'replace')[:300]}")
+            raise upstream_error(f"docker {args[0]} failed (rc={rc}): "
+                                 f"{err.decode('utf-8', 'replace')[:300]}")
         return out
 
-    def workspace_for(self, sandbox: str) -> str:
-        """Host path bind-mounted into the sandbox (mounted at the same path inside)."""
-        return str(self._workspace_root / sandbox / "workspace")
+    def workspace_for(self, container: str) -> str:
+        """Host path bind-mounted into the container (same path inside)."""
+        return str(self._workspace_root / container / "workspace")
 
-    async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None:
-        workspace = Path(self.workspace_for(sandbox))
+    async def create(self, container: str, image: str, env: dict[str, str], runtime: str) -> None:
+        """`docker create` the agent container (created, not started). Publishes 8642 to
+        a Docker-assigned host loopback port. Fails fast if `runtime` is unavailable."""
+        workspace = Path(self.workspace_for(container))
         workspace.mkdir(parents=True, exist_ok=True)
-        await self._check("create", "shell", str(workspace), "-t", image, "--name", sandbox, "-q", timeout=300.0)
-        # Apply env inside the sandbox (kept out of argv where possible via the agent config/env file).
+        args = ["create", "--name", container, "--restart", "no",
+                "-p", f"127.0.0.1::{CONTAINER_API_PORT}",
+                "-v", f"{workspace}:{workspace}", "-w", str(workspace)]
+        if runtime and runtime != "runc":
+            args += ["--runtime", runtime]
         for key, value in env.items():
-            await self._check(
-                "exec", sandbox, "sh", "-lc",
-                f'mkdir -p "$(dirname ~/.caduceus_env)"; printf "export %s=%s\\n" {_sh(key)} {_sh(value)} >> ~/.caduceus_env',
-            )
-
-    async def write_file(self, sandbox: str, path: str, content: str) -> None:
-        # Write via stdin to avoid putting content on the command line; the
-        # config carries the agent's bearer token, so restrict perms to 600.
-        await self._check(
-            "exec", "-i", sandbox, "sh", "-lc",
-            f'mkdir -p "$(dirname {_sh(path)})" && cat > {_sh(path)} && chmod 600 {_sh(path)}',
-            stdin=content.encode("utf-8"),
-        )
-
-    async def stop(self, sandbox: str) -> None:
-        await self._check("stop", sandbox, timeout=60.0)
-
-    async def start(self, sandbox: str) -> None:
-        # sbx has no `start` verb; `sbx exec` transparently starts a stopped
-        # sandbox (Build & Test, Finding J). A no-op command suffices.
-        await self._check("exec", sandbox, "sh", "-lc", "true", timeout=60.0)
-
-    async def remove(self, sandbox: str) -> None:
-        await self._check("rm", "-f", sandbox, timeout=60.0)
-
-    async def list_statuses(self) -> SandboxSnapshot:
-        """One `sbx ls --json` → snapshot of every sandbox (BR-P1). Any error
-        (non-zero rc, timeout, or other failure) → `ok=False` (non-authoritative;
-        callers must not downgrade lifecycle, BR-P2) — never raises to `agent ls`."""
-        try:
-            rc, out, _ = await self._run("ls", "--json", timeout=15.0)
-        except Exception as exc:  # noqa: BLE001 — timeout/spawn error → non-authoritative
-            log.warning("sbx ls failed: %s", exc)
-            return SandboxSnapshot({}, ok=False)
+            args += ["-e", f"{key}={value}"]
+        args.append(image)
+        rc, _out, err = await self._run(*args, timeout=120.0)
         if rc != 0:
-            return SandboxSnapshot({}, ok=False)
-        return SandboxSnapshot(_parse_sbx_ls(out), ok=True)
+            msg = err.decode("utf-8", "replace")
+            if runtime and runtime != "runc" and ("runtime" in msg.lower() or runtime in msg):
+                raise RuntimeUnavailable(
+                    f"container runtime '{runtime}' is not available to Docker. "
+                    f"Install gVisor and register the '{runtime}' runtime, or set "
+                    f"`caduceus gateway config --runtime runc`. (docker: {msg.strip()[:200]})"
+                )
+            raise upstream_error(f"docker create failed (rc={rc}): {msg[:300]}")
 
-    async def status(self, sandbox: str) -> str:
-        snap = await self.list_statuses()
-        return snap.get(sandbox) if snap.ok else "missing"
+    async def host_port(self, container: str) -> Optional[int]:
+        rc, out, _ = await self._run("port", container, str(CONTAINER_API_PORT), timeout=15.0)
+        if rc != 0:
+            return None
+        # output like "127.0.0.1:49xxx" (possibly multiple lines)
+        for line in out.decode("utf-8", "replace").splitlines():
+            _, _, port = line.strip().rpartition(":")
+            if port.isdigit():
+                return int(port)
+        return None
 
-    async def logs(self, sandbox: str, follow: bool = False) -> AsyncIterator[str]:
-        args = ["exec", sandbox, "sh", "-lc", "hermes logs" + (" -f" if follow else "")]
+    async def put_file(self, container: str, path: str, content: str) -> None:
+        """Copy a file into the container via `docker cp` (works while created or running).
+        The config carries the agent's bearer token → written 600."""
+        tmp = tempfile.mktemp()  # noqa: S306 — local, short-lived
+        try:
+            Path(tmp).write_text(content, encoding="utf-8")
+            os.chmod(tmp, 0o600)
+            await self._check("cp", tmp, f"{container}:{path}", timeout=30.0)
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+    async def stop(self, container: str) -> None:
+        await self._check("stop", container, timeout=60.0)
+
+    async def start(self, container: str) -> None:
+        await self._check("start", container, timeout=60.0)
+
+    async def remove(self, container: str) -> None:
+        await self._check("rm", "-f", container, timeout=60.0)
+
+    async def status(self, container: str) -> str:
+        rc, out, _ = await self._run("inspect", "-f", "{{.State.Status}}", container, timeout=15.0)
+        if rc != 0:
+            return "missing"
+        st = out.decode("utf-8", "replace").strip().lower()
+        return "running" if st == "running" else "stopped"
+
+    async def statuses(self) -> dict[str, str]:
+        """One live `docker ps -a` → {name: running|stopped} for `cad-*` containers.
+        Real-time per call (no cache). Raises on docker failure (caller decides policy)."""
+        out = await self._check(
+            "ps", "-a", "--filter", "name=cad-",
+            "--format", "{{.Names}}\t{{.State}}", timeout=15.0)
+        result: dict[str, str] = {}
+        for line in out.decode("utf-8", "replace").splitlines():
+            if "\t" not in line:
+                continue
+            name, _, state = line.partition("\t")
+            name = name.strip()
+            if name:
+                result[name] = "running" if state.strip().lower() == "running" else "stopped"
+        return result
+
+    async def logs(self, container: str, follow: bool = False) -> AsyncIterator[str]:
+        args = ["logs"] + (["-f"] if follow else []) + [container]
         proc = await asyncio.create_subprocess_exec(
-            self._sbx, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+            self._docker, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
         )
         assert proc.stdout is not None
         async for line in proc.stdout:
             yield line.decode("utf-8", "replace").rstrip("\n")
-
-
-def _sh(value: str) -> str:
-    """Single-quote a value for safe embedding in `sh -lc`."""
-    return "'" + str(value).replace("'", "'\\''") + "'"

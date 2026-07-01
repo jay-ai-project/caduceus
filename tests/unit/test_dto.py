@@ -37,10 +37,9 @@ def test_dto_round_trips():
 def test_agent_view_strips_secrets():
     rec = make_agent(name="a1", session_id="sess")
     rec.token = "SECRET-TOKEN"
-    rec.serve_auth = "SECRET-AUTH"
     view = AgentView.from_record(rec, HealthStatus(HealthLevel.healthy, shallow=True))
     blob = str(view.to_dict())
-    assert "SECRET-TOKEN" not in blob and "SECRET-AUTH" not in blob
+    assert "SECRET-TOKEN" not in blob
     assert view.has_session is True and view.health == "healthy"
 
 

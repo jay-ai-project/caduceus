@@ -317,11 +317,44 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - Artifacts: construction/u8-http-sse-docker/infrastructure-design/infrastructure-design.md;
     updated construction/shared-infrastructure.md.
 
+- [x] **U8 Infrastructure Design** (LIGHT) — **APPROVED** (2026-07-01, committed 17a9d9b).
+- [x] **U8 Code Generation — Part 1 (Plan)** — **APPROVED** (2026-07-01).
+- [x] **U8 Code Generation — Part 2 (Generation)** — complete, **awaiting approval gate**
+  - All 17 plan steps [x]. Created transport/hermes_api.py + config/doctor.py + 3 test files;
+    modified models/settings/dto/base/chat/supervisor/provisioner/images/hermes_config/health/
+    names/service/gateway_config/wiring/gateway/control_api/cli(app,render)/Dockerfile/pyproject/
+    README + migrated tests+fakes; deleted transport/acp.py, transport/serve.py, test_acp_transport.py.
+  - **241 unit+PBT tests pass** (was 211; +30). No new runtime dep (dropped websockets). Editable
+    install + entrypoint + import verified; full suite (incl e2e) collects clean.
+  - Test authoring: `fork` subagent unavailable in this environment → written inline (full context).
+  - Artifacts: construction/u8-http-sse-docker/code/code-summary.md;
+    plan construction/plans/u8-http-sse-docker-code-generation-plan.md (all [x]).
+
+- [x] **U8 Code Generation — Part 2 (Generation)** — **APPROVED** (2026-07-01).
+- [x] **U8 Build & Test** — complete & **APPROVED** — U8 cycle ✅ COMPLETE
+  - Build ✅ (editable + entrypoint + import; image rebuilt: base hermes + aiohttp 3.14.1 +
+    `CMD hermes gateway run`). Tests ✅ **243** unit+PBT (was 211; +32) without Docker.
+  - Live ✅ (Docker 29.4.0 + hermes 0.17.0 API server + Ollama): doctor; in-container API server
+    (/health 200, sessions, 401 on bad key); create --wait + background → running/healthy; chat
+    streamed real "PONG" (agent→AI-Gateway→Ollama); history 2-turn replay; gateway stop left
+    container running + start reconnected running/healthy; runsc **fail-fast** with gVisor guidance.
+  - **3 real defects found & fixed live** (+ 1 non-defect): U8-D2 nested session id
+    (`{"session":{"id"}}`), U8-D3 host-port read after **start** (Docker assigns at start not
+    create → saga reordered), U8-D4 `/messages` items under `"data"` not `"messages"`. 2 regression
+    tests added. U8-D1 = placeholder-key rejection (real minted tokens fine; no change).
+  - Artifacts: construction/build-and-test/u8-{build,unit-test,integration-test}-instructions.md,
+    u8-build-and-test-summary.md.
+
 ## Current Status
 - **Lifecycle Phase**: CONSTRUCTION (U8 HTTP/SSE Transport + Docker Runtime Migration) —
-  Infrastructure Design (LIGHT) complete, **awaiting approval gate**.
-- **Current Stage**: Infrastructure Design (U8).
-- **Next Stage**: Code Generation (U8) after approval.
+  ✅ COMPLETE & APPROVED (→ Operations placeholder).
+- **Current Stage**: — (Operations placeholder).
+- **Next Stage**: —
+- **U8 HTTP/SSE + Docker Runtime**: ✅ COMPLETE & APPROVED — Requirements + Plan + FD/Spike +
+  Infra + CodeGen + Build & Test all approved. 243 tests; live-verified (in-container API server,
+  chat stream, history, stop/start reconnect, runsc fail-fast); 3 integration defects fixed.
+  Replaced hermes-acp+sbx with a single HTTP/SSE transport over the hermes API server on plain
+  Docker containers (optional gVisor); added `caduceus doctor` + `gateway config --runtime`.
 - **Prior**: CONSTRUCTION (U7 Performance & Stability) — ✅ COMPLETE & APPROVED.
 - **U7 Performance & Stability**: ✅ COMPLETE & APPROVED — Requirements + Plan + FD + CodeGen +
   Build & Test all approved. 228 tests; live-verified (fast `agent ls`, background create, warm

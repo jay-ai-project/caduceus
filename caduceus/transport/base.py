@@ -3,8 +3,11 @@
 `Transport` is the single streaming port caduceus uses to talk to an agent. Concrete
 transports implement `_raw_stream` (protocol-specific) + `open/close/health`; the base
 runs every `_raw_stream` through `normalize_stream`, so chat behavior is **identical**
-across implementations (FR-C3) and a future `AcpTransport` can plug in behind the same
-interface without changing chat UX (FR-C4).
+across implementations (FR-C3).
+
+U8: there is now a **single** concrete transport, `HermesApiTransport` (HTTP + SSE over
+the hermes API server), used for both local (Docker) and remote (registered URL) agents.
+The former `AcpTransport`/`ServeTransport` split is gone.
 """
 
 from __future__ import annotations
@@ -25,8 +28,7 @@ class TransportState(str, Enum):
 
 
 class TransportKind(str, Enum):
-    serve = "serve"  # v1: hermes serve (JSON-RPC/WebSocket)
-    acp = "acp"      # designed-for: local stdio optimization (not built)
+    http = "http"  # U8: hermes API server (HTTP + SSE) — the only transport
 
 
 class NotSupported(Exception):
@@ -34,7 +36,7 @@ class NotSupported(Exception):
 
 
 class Transport(ABC):
-    kind: TransportKind = TransportKind.serve
+    kind: TransportKind = TransportKind.http
 
     def __init__(self, rec: AgentRecord):
         self.rec = rec
@@ -77,8 +79,8 @@ class Transport(ABC):
     async def load_history(self, session_id: Optional[str]) -> list[HistoryTurn]:
         """Best-effort prior-turn replay for a persisted session.
 
-        Default: unsupported → empty (remote/serve transports inherit this).
-        `AcpTransport` overrides to capture the ACP `session/load` replay.
+        Default: unsupported → empty. `HermesApiTransport` overrides to replay
+        `GET /api/sessions/{id}/messages`.
         """
         return []
 
@@ -94,16 +96,10 @@ class Transport(ABC):
     def for_agent(rec: AgentRecord) -> "Transport":
         """Select a transport for an agent.
 
-        Local sandboxed agents are driven over `hermes acp` (stdio) via
-        `AcpTransport`; remote registered agents keep the `hermes serve`
-        (JSON-RPC/WebSocket) `ServeTransport`.
+        U8: one transport for all agents — `HermesApiTransport` over the hermes API
+        server (HTTP + SSE). Local vs remote is only a management/lifecycle distinction,
+        not a transport one (BR-T1).
         """
-        from caduceus.common.models import AgentKind
+        from caduceus.transport.hermes_api import HermesApiTransport
 
-        if rec.kind == AgentKind.local:
-            from caduceus.transport.acp import AcpTransport
-
-            return AcpTransport(rec)
-        from caduceus.transport.serve import ServeTransport
-
-        return ServeTransport(rec)
+        return HermesApiTransport(rec)

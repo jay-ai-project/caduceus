@@ -2,7 +2,7 @@
 
 Public surface (consumed by U4):
 - `ChatService.chat_stream(name, message) -> AsyncIterator[ChatEvent]`
-- `Transport` / `Transport.for_agent(rec)` and `ServeTransport`
+- `Transport` / `Transport.for_agent(rec)` → `HermesApiTransport` (HTTP+SSE, U8)
 - `Supervisor` (process supervision; RES-5)
 - `ChatEvent` / `ChatEventType`
 """
