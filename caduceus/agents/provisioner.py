@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -26,6 +27,45 @@ log = get_logger("caduceus.provisioner")
 HERMES_CONFIG_PATH = "/root/.hermes/config.yaml"
 
 
+@dataclass
+class SandboxSnapshot:
+    """A single point-in-time projection of the sandbox runtime (one `sbx ls`).
+
+    `ok=False` means the underlying `sbx ls` errored/timed out — the snapshot is
+    **non-authoritative** and callers MUST NOT downgrade lifecycle from it (BR-P2).
+    A sandbox absent from an *authoritative* snapshot is `missing`.
+    """
+
+    statuses: dict[str, str] = field(default_factory=dict)  # name -> "running"|"stopped"
+    ok: bool = True
+
+    def get(self, sandbox: str | None) -> str:
+        if not sandbox:
+            return "missing"
+        return self.statuses.get(sandbox, "missing")
+
+
+def _parse_sbx_ls(out: bytes) -> dict[str, str]:
+    """Parse `sbx ls --json` → {name: "running"|"stopped"} (Build & Test, Finding H)."""
+    import json as _json
+
+    try:
+        data = _json.loads(out or "{}")
+    except (ValueError, TypeError):
+        return {}
+    items = data.get("sandboxes", []) if isinstance(data, dict) else data
+    result: dict[str, str] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or item.get("Name")
+        if not name:
+            continue
+        state = (item.get("status") or item.get("State") or "").lower()
+        result[name] = "running" if "run" in state else "stopped"
+    return result
+
+
 class Provisioner(Protocol):
     def workspace_for(self, sandbox: str) -> str: ...
     async def create_sandbox(self, sandbox: str, image: str, env: dict[str, str]) -> None: ...
@@ -34,6 +74,7 @@ class Provisioner(Protocol):
     async def start(self, sandbox: str) -> None: ...
     async def remove(self, sandbox: str) -> None: ...
     async def status(self, sandbox: str) -> str: ...  # running | stopped | missing
+    async def list_statuses(self) -> SandboxSnapshot: ...  # one `sbx ls` for all sandboxes
     def logs(self, sandbox: str, follow: bool = False) -> AsyncIterator[str]: ...
 
 
@@ -104,24 +145,22 @@ class SbxProvisioner:
     async def remove(self, sandbox: str) -> None:
         await self._check("rm", "-f", sandbox, timeout=60.0)
 
-    async def status(self, sandbox: str) -> str:
-        import json as _json
-        rc, out, _ = await self._run("ls", "--json", timeout=15.0)
-        if rc != 0:
-            return "missing"
+    async def list_statuses(self) -> SandboxSnapshot:
+        """One `sbx ls --json` → snapshot of every sandbox (BR-P1). Any error
+        (non-zero rc, timeout, or other failure) → `ok=False` (non-authoritative;
+        callers must not downgrade lifecycle, BR-P2) — never raises to `agent ls`."""
         try:
-            data = _json.loads(out or "{}")
-        except (ValueError, TypeError):
-            return "missing"
-        # `sbx ls --json` → {"sandboxes": [{"name","status",...}]} (Build & Test, Finding H)
-        items = data.get("sandboxes", []) if isinstance(data, dict) else data
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            if item.get("name") == sandbox or item.get("Name") == sandbox:
-                state = (item.get("status") or item.get("State") or "").lower()
-                return "running" if "run" in state else "stopped"
-        return "missing"
+            rc, out, _ = await self._run("ls", "--json", timeout=15.0)
+        except Exception as exc:  # noqa: BLE001 — timeout/spawn error → non-authoritative
+            log.warning("sbx ls failed: %s", exc)
+            return SandboxSnapshot({}, ok=False)
+        if rc != 0:
+            return SandboxSnapshot({}, ok=False)
+        return SandboxSnapshot(_parse_sbx_ls(out), ok=True)
+
+    async def status(self, sandbox: str) -> str:
+        snap = await self.list_statuses()
+        return snap.get(sandbox) if snap.ok else "missing"
 
     async def logs(self, sandbox: str, follow: bool = False) -> AsyncIterator[str]:
         args = ["exec", sandbox, "sh", "-lc", "hermes logs" + (" -f" if follow else "")]

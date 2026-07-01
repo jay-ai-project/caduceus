@@ -74,6 +74,33 @@ class ChatService:
         async for ev in self._stream_pooled(rec, message):
             yield ev
 
+    # ---- warm-up (FR-U7-3; no LLM spend) -----------------------------
+    async def warm(self, name: str) -> None:
+        """Pre-open the pooled ACP transport so the first chat is instant (BR-P6).
+
+        Runs `initialize` + `session/new` (or `session/load`) and leaves the
+        transport open in the pool for reuse on the first user turn. Best-effort:
+        any failure is swallowed (the agent re-warms lazily on first chat) and no
+        LLM completion is issued (warm-up stops before any prompt).
+        """
+        rec = self.registry.get(name)
+        if rec is None or rec.kind != AgentKind.local or not self._reuse:
+            return
+        entry = self._pool.get(name)
+        if entry is not None and await entry.transport.is_alive():
+            return  # already warm
+        if entry is not None:
+            await self._evict(name)
+        entry = _Pooled(self._factory(rec))
+        self._pool[name] = entry
+        async with entry.lock:
+            try:
+                await entry.transport.open()  # initialize + session/new|load (no prompt)
+                await self._persist_session(rec, entry.transport)
+            except Exception as exc:  # noqa: BLE001 — non-fatal; re-warms on first chat
+                await self._evict(name)
+                log.info("warm-up for %s failed: %s", name, exc)
+
     # ---- history replay (FR-W10; best-effort, local only) ------------
     async def history(self, name: str) -> list[HistoryTurn]:
         """Prior turns for an agent's persisted session, best-effort.

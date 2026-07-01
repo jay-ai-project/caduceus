@@ -91,7 +91,7 @@ class _CountingHealth:
     def __init__(self):
         self.calls = 0
 
-    async def check(self, rec, deep=False):
+    async def check(self, rec, deep=False, sandbox_status=None):
         self.calls += 1
         from caduceus.common.models import HealthLevel, HealthStatus
         return HealthStatus(HealthLevel.healthy, shallow=True)
@@ -107,9 +107,85 @@ async def test_list_probe_false_skips_health_check(tmp_path):
 
     prov.calls.clear()
     await svc.list(probe=False)
-    assert hc.calls == create_calls          # no extra health handshake on cheap list
-    assert "status" not in prov.calls        # and no sbx reconcile — registry-only (instant)
+    assert hc.calls == create_calls              # no extra health handshake on cheap list
+    assert "list_statuses" not in prov.calls     # and no sbx reconcile — registry-only (instant)
 
     await svc.list(probe=True)
-    assert hc.calls == create_calls + 1      # one probe per agent when requested
-    assert "status" in prov.calls            # full reconcile on the authoritative path
+    assert hc.calls == create_calls + 1          # one probe per agent when requested
+    assert "list_statuses" in prov.calls         # full reconcile on the authoritative path
+
+
+# ---- U7: single-snapshot list, async create, reconcile ----
+async def test_list_probe_true_single_snapshot(tmp_path):
+    # One `sbx ls` (list_statuses) per `list`, regardless of agent count (BR-P1).
+    reg, svc, prov = make_service(tmp_path)
+    await svc.create("a1")
+    await svc.create("a2")
+    await svc.create("a3")
+    prov.calls.clear()
+    await svc.list(probe=True)
+    assert prov.calls.count("list_statuses") == 1
+    assert "status" not in prov.calls            # no per-agent re-probe
+
+
+async def test_list_non_authoritative_snapshot_keeps_lifecycle(tmp_path):
+    # sbx ls failure (ok=False) must not downgrade lifecycle (BR-P2).
+    reg, svc, prov = make_service(tmp_path)
+    await svc.create("a1")
+    assert reg.get("a1").lifecycle == Lifecycle.running
+    prov.snapshot_ok = False
+    recs = await svc.list(probe=True)
+    assert recs[0].lifecycle == Lifecycle.running
+    assert recs[0].last_health.level.value == "unknown"
+
+
+async def test_create_background_returns_creating_then_ready(tmp_path):
+    reg, svc, prov = make_service(tmp_path)
+    rec = await svc.create("bg", wait=False)
+    assert rec.lifecycle == Lifecycle.creating          # returns immediately (BR-P4)
+    # drain the scheduled background job
+    await svc.await_jobs(timeout=5.0)
+    assert reg.get("bg").lifecycle == Lifecycle.running  # provisioned in the background
+    assert prov.files[("cad-bg", CONFIG_PATH)]           # config written
+
+
+async def test_create_background_failure_marks_failed(tmp_path):
+    prov = FakeProvisioner(fail_on="write_file")
+    reg, svc, _ = make_service(tmp_path, prov)
+    rec = await svc.create("bad", wait=False)
+    assert rec.lifecycle == Lifecycle.creating
+    await svc.await_jobs(timeout=5.0)
+    got = reg.get("bad")
+    assert got.lifecycle == Lifecycle.failed             # persisted failed (BR-P5)
+    assert "create failed" in (got.last_health.detail or "")
+    assert "cad-bad" not in prov.sandboxes               # compensated
+
+
+async def test_create_duplicate_inflight_rejected(tmp_path):
+    reg, svc, _ = make_service(tmp_path)
+    await svc.create("dup", wait=False)                  # job in flight
+    with pytest.raises(ProxyError):
+        await svc.create("dup")                          # BR-P12
+    await svc.await_jobs(timeout=5.0)
+
+
+async def test_warm_hook_called_on_success(tmp_path):
+    warmed = []
+
+    async def warm(name):
+        warmed.append(name)
+
+    reg = Registry(tmp_path / "state.json"); reg.load()
+    svc = AgentService(reg, FakeProvisioner(), FakeImageBuilder(), FakeHealthChecker(),
+                       AIGW, warm_hook=warm)
+    await svc.create("w1")                                # wait=True default
+    assert warmed == ["w1"]                               # BR-P6
+
+
+async def test_reconcile_all_reconnects_running(tmp_path):
+    reg, svc, prov = make_service(tmp_path)
+    await svc.create("r1")
+    # simulate a stale persisted lifecycle that reconcile should correct
+    reg.get("r1").lifecycle = Lifecycle.stopped
+    await svc.reconcile_all()
+    assert reg.get("r1").lifecycle == Lifecycle.running  # BR-P9 (sandbox is running)

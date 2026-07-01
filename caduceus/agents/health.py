@@ -31,13 +31,18 @@ class HealthChecker:
     def __init__(self, probes: HealthProbes):
         self.p = probes
 
-    async def check(self, rec: AgentRecord, deep: bool = False) -> HealthStatus:
+    async def check(self, rec: AgentRecord, deep: bool = False,
+                    sandbox_status: Optional[str] = None) -> HealthStatus:
         # ---- shallow ----
         # Local agents have no network endpoint (driven over `hermes acp` stdio);
         # a running sandbox is the shallow-liveness signal. Remote agents are
-        # reachability-probed on their registered endpoint.
+        # reachability-probed on their registered endpoint. `sandbox_status`, when
+        # supplied by a batched caller (AgentService.list, one `sbx ls`), avoids a
+        # redundant per-agent probe (BR-P1).
         if rec.kind == AgentKind.local:
-            shallow = rec.sandbox_name is not None and (await self.p.sandbox_status(rec.sandbox_name)) == "running"
+            if sandbox_status is None and rec.sandbox_name is not None:
+                sandbox_status = await self.p.sandbox_status(rec.sandbox_name)
+            shallow = rec.sandbox_name is not None and sandbox_status == "running"
             unreachable_detail = "sandbox not running"
         else:
             shallow = bool(rec.endpoint) and await self.p.endpoint_reachable(rec.endpoint)

@@ -169,11 +169,21 @@ class GatewayService:
         a = uvicorn.Server(uvicorn.Config(aigateway_app, host=a_host, port=int(a_port), log_level="info"))
 
         async def _run():
+            # Reconnect to still-running agents from one `sbx ls` snapshot (BR-P9)
+            # before serving, so `agent ls` / chat reflect reality immediately.
+            try:
+                await services.agent_service.reconcile_all()
+            except Exception as exc:  # noqa: BLE001 — never block startup
+                log.warning("boot reconcile failed: %s", exc)
             services.supervisor.start()  # inside the loop (BR-S; see start())
             try:
                 await asyncio.gather(c.serve(), a.serve())
             finally:
+                # Graceful shutdown is sandbox-safe (BR-P8): stop supervision and tear
+                # down pooled `hermes acp` stdio processes only — NEVER `sbx stop`/`rm`,
+                # so agent sandboxes keep running and reconnect on the next start.
                 await services.supervisor.stop()
+                await services.agent_service.await_jobs(timeout=5.0)  # let in-flight creates settle
                 await services.chat_service.close_all()  # tear down pooled acp processes
 
         asyncio.run(_run())

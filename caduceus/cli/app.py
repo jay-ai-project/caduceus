@@ -55,21 +55,29 @@ def _run(fn):
 @agent_app.command("create")
 def agent_create(name: str, model: Optional[str] = None,
                  upstream_url: Optional[str] = None, image: Optional[str] = None,
+                 wait: bool = typer.Option(False, "--wait/--no-wait",
+                                           help="block until the agent is provisioned & ready"),
                  json_out: bool = typer.Option(False, "--json")):
     client = _client_or_exit()
 
     def go():
-        view = None
-        for ev in client.create_agent(CreateSpec(name, model, upstream_url, image)):
-            if ev.get("event") == "progress":
+        view = None  # terminal record (wait: done; background: accepted)
+        for ev in client.create_agent(CreateSpec(name, model, upstream_url, image), wait=wait):
+            kind = ev.get("event")
+            if kind == "progress":
                 render.progress(ev.get("phase", ""), ev.get("detail", ""))
-            elif ev.get("event") == "done":
+            elif kind in ("done", "accepted"):
                 view = AgentView.from_dict(ev["agent"])
         if view is None:
-            render.error("create did not complete")
+            render.error("create did not start" if not wait else "create did not complete")
             raise typer.Exit(EXIT_RUNTIME)
-        render.render_agents([view], json_out) if json_out else render.emit(
-            f"created agent '{view.name}' ({view.lifecycle})")
+        if json_out:
+            render.render_agents([view], json_out)
+        elif wait:
+            render.emit(f"created agent '{view.name}' ({view.lifecycle})")
+        else:
+            render.emit(f"creating agent '{view.name}' in the background "
+                        f"— check `caduceus agent ls`")
     _run(go)
 
 

@@ -215,3 +215,34 @@ async def test_history_swallows_transport_error():
     cs = ChatService(FakeRegistry([rec]),
                      transport_factory=lambda r: FakeTransport(r, history_error=RuntimeError("boom")))
     assert await cs.history("a1") == []
+
+
+# ---- U7: no-LLM warm-up (BR-P6) ----
+async def test_warm_opens_and_pools_transport():
+    rec = make_agent(lifecycle=Lifecycle.running, kind=AgentKind.local)
+    made = []
+
+    def factory(r):
+        t = FakeTransport(r)
+        made.append(t)
+        return t
+
+    cs = ChatService(FakeRegistry([rec]), health_check=_healthy, transport_factory=factory)
+    await cs.warm("a1")
+    assert "a1" in cs._pool                 # transport pooled for the first turn
+    assert made and made[0].opened is True  # initialize/session established (no prompt sent)
+
+
+async def test_warm_failure_is_swallowed():
+    rec = make_agent(lifecycle=Lifecycle.running, kind=AgentKind.local)
+    cs = ChatService(FakeRegistry([rec]),
+                     transport_factory=lambda r: FakeTransport(r, fail_open=True))
+    await cs.warm("a1")            # must not raise
+    assert "a1" not in cs._pool    # evicted on failure → re-warms lazily on first chat
+
+
+async def test_warm_remote_is_noop():
+    rec = make_agent(kind=AgentKind.remote, lifecycle=Lifecycle.running)
+    cs = ChatService(FakeRegistry([rec]), transport_factory=lambda r: FakeTransport(r))
+    await cs.warm("a1")
+    assert "a1" not in cs._pool

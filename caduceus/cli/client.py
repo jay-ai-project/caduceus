@@ -63,10 +63,13 @@ class ControlAPIClient:
     #: the default per-call timeout (Build & Test, Finding E, 2026-06-30).
     PROVISION_TIMEOUT = 1800.0
 
-    def create_agent(self, spec: CreateSpec) -> Iterator[dict]:
-        """Stream provisioning progress as SSE events; yields
-        `{"event": "progress"|"done", ...}`. Raises ControlError on failure."""
-        with self._c().stream("POST", "/agents", json=spec.to_dict(), timeout=self.PROVISION_TIMEOUT) as resp:
+    def create_agent(self, spec: CreateSpec, wait: bool = False) -> Iterator[dict]:
+        """Create an agent. Default (`wait=False`) yields a single
+        `{"event": "accepted", ...}` and provisioning continues in the background.
+        `wait=True` streams `{"event": "progress"|"done", ...}` until ready. Raises
+        ControlError on failure."""
+        with self._c().stream("POST", "/agents", json=spec.to_dict(),
+                              params={"wait": wait}, timeout=self.PROVISION_TIMEOUT) as resp:
             if resp.status_code >= 400:
                 resp.read()
                 raise ControlError(_err_message(resp))

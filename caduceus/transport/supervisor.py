@@ -26,7 +26,7 @@ from enum import Enum
 from typing import Optional
 
 from caduceus.common.logging import get_logger
-from caduceus.common.models import AgentKind, AgentRecord, HealthLevel, HealthStatus
+from caduceus.common.models import AgentKind, AgentRecord, HealthLevel, HealthStatus, Lifecycle
 
 log = get_logger("caduceus.transport.supervisor")
 
@@ -122,6 +122,12 @@ class Supervisor:
     # ---- one sweep pass (also directly callable in tests) ------------
     async def _sweep(self) -> None:
         for rec in await self._agents():
+            # Only agents in `running` lifecycle are supervised (BR-P11). A `creating`
+            # agent has a provisioning job in flight; `stopped`/`failed` are deliberate
+            # or terminal — restarting any of these would fight the provisioner or
+            # revive a purposely-stopped agent.
+            if rec.lifecycle != Lifecycle.running:
+                continue
             state = self._states.setdefault(rec.name, AgentSupervisionState(rec.name))
             healthy = await self._is_healthy(rec)
             if healthy:

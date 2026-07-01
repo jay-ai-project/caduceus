@@ -132,10 +132,12 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
                                transport_factory=Transport.for_agent)
 
     # AgentService tears down a pooled chat transport on stop/remove (the agent's
-    # `hermes acp` process must not outlive its sandbox).
+    # `hermes acp` process must not outlive its sandbox), and warms the pooled
+    # transport after a successful provision so the first chat is instant (BR-P6).
     agent_service = AgentService(registry, provisioner, images, health_checker,
                                  aigateway_url=aigateway_url,
-                                 transport_closer=chat_service.close_agent)
+                                 transport_closer=chat_service.close_agent,
+                                 warm_hook=chat_service.warm)
 
     async def _restart(rec: AgentRecord) -> None:
         # ACP transport: there is no serve process/port — "restart" means ensure

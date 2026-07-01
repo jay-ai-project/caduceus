@@ -89,11 +89,13 @@ This installs the `caduceus` command.
 #    base URL and default model, and saves them to ~/.caduceus/config.toml
 caduceus gateway start
 
-# 2. Create a local sandboxed agent (builds the hermes image on first use,
-#    streams live provisioning progress)
+# 2. Create a local sandboxed agent. Returns immediately and provisions in the
+#    background (builds the hermes image on first use); watch it become
+#    running/healthy with `caduceus agent ls`. Add --wait to block until ready.
 caduceus agent create my-agent
 
-# 3. Chat with it (streaming)
+# 3. Chat with it (streaming). Once `agent ls` shows running/healthy, chat starts
+#    instantly — the agent is warmed on create, so there's no first-turn cold start.
 caduceus agent chat my-agent "Hello! Who are you?"
 
 # 4. …or open the Web UI
@@ -101,6 +103,10 @@ caduceus agent chat my-agent "Hello! Who are you?"
 ```
 
 Run the daemon detached with `caduceus gateway start -d`.
+
+Stopping the gateway (`caduceus gateway stop`) leaves your agent sandboxes running — only
+`caduceus agent stop` / `caduceus agent rm` stop or remove them. When you start the daemon again it
+reconnects to still-running agents (reconciled from `sbx`), so they're immediately chat-able.
 
 ## Web UI
 
@@ -122,8 +128,9 @@ caduceus gateway status [--json]     Show daemon status
 caduceus gateway config [--get] [--upstream-url URL] [--model NAME] [--json]
                                      View / change upstream_base_url + default_model
 
-caduceus agent create <name> [--model M] [--upstream-url U] [--image I] [--json]
-                                     Provision a local sandboxed agent (live progress)
+caduceus agent create <name> [--wait] [--model M] [--upstream-url U] [--image I] [--json]
+                                     Provision a local sandboxed agent in the background
+                                     (--wait blocks with live progress until ready)
 caduceus agent register <name> --endpoint <url> [--auth TOKEN]
                                      Register an existing remote hermes endpoint
 caduceus agent ls [--json]           List agents with lifecycle + health

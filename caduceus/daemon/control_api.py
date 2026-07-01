@@ -75,10 +75,23 @@ def build_control_app(services, status_provider=None) -> FastAPI:
         return gs.to_dict()
 
     @app.post("/agents")
-    async def create(request: Request):
-        # Provisioning is slow (image build/load, sandbox create); stream live
-        # progress as SSE so the CLI can show status, then a final done/error event.
+    async def create(request: Request, wait: bool = False):
+        # Default (wait=false, FR-U7-2): register the agent as `creating`, kick off
+        # background provisioning, and return a single `accepted` event immediately —
+        # `agent ls` then reflects the live creating→running→healthy progression.
+        # wait=true: stream live provisioning progress as SSE → final done/error.
         spec = CreateSpec.from_dict(await request.json())
+
+        if not wait:
+            async def gen_bg():
+                try:
+                    rec = await agents.create(spec.name, wait=False)
+                    yield _sse({"event": "accepted", "agent": AgentView.from_record(rec).to_dict()})
+                except Exception as exc:  # noqa: BLE001 — surface as an in-band error event
+                    yield _sse({"event": "error", **_err_event(exc)})
+
+            return StreamingResponse(gen_bg(), media_type="text/event-stream")
+
         q: "asyncio.Queue" = asyncio.Queue()
 
         async def progress(phase: str, detail: str = "") -> None:

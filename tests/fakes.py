@@ -60,6 +60,13 @@ class FakeProvisioner:
         self.calls.append("status")
         return self.sandboxes.get(sandbox, "missing")
 
+    async def list_statuses(self):
+        from caduceus.agents.provisioner import SandboxSnapshot
+        self.calls.append("list_statuses")
+        if getattr(self, "snapshot_ok", True) is False:
+            return SandboxSnapshot({}, ok=False)
+        return SandboxSnapshot(dict(self.sandboxes), ok=True)
+
     async def logs(self, sandbox: str, follow: bool = False) -> AsyncIterator[str]:
         yield "fake log"
 
@@ -81,7 +88,8 @@ class FakeHealthChecker:
     def __init__(self, level: HealthLevel = HealthLevel.healthy):
         self.level = level
 
-    async def check(self, rec: AgentRecord, deep: bool = False) -> HealthStatus:
+    async def check(self, rec: AgentRecord, deep: bool = False,
+                    sandbox_status: Optional[str] = None) -> HealthStatus:
         return HealthStatus(self.level, shallow=True, deep=(True if deep else None), checked_at="t")
 
 
@@ -276,13 +284,13 @@ class FakeAgentService:
         self._agents = {a.name: a for a in (agents or [])}
         self.removed: list[str] = []
 
-    async def create(self, name, progress=None):
-        if progress is not None:
-            for phase in ("preparing image", "creating sandbox", "configuring agent", "verifying health"):
+    async def create(self, name, wait=True, progress=None):
+        if wait and progress is not None:
+            for phase in ("preparing image", "creating sandbox", "configuring agent", "warming up"):
                 res = progress(phase)
                 if hasattr(res, "__await__"):
                     await res
-        rec = make_agent(name=name, lifecycle=Lifecycle.running)
+        rec = make_agent(name=name, lifecycle=(Lifecycle.running if wait else Lifecycle.creating))
         self._agents[name] = rec
         return rec
 
@@ -382,13 +390,18 @@ class FakeControlAPIClient:
     def status(self):
         return self._status
 
-    def create_agent(self, spec):
-        # mirrors ControlAPIClient.create_agent: yields SSE progress then a done event
+    def create_agent(self, spec, wait=False):
+        # mirrors ControlAPIClient.create_agent: default background → one `accepted`
+        # event with a `creating` record; wait=True → progress stream then `done`.
         if self._raise:
             raise self._raise
-        yield {"event": "progress", "phase": "creating sandbox", "detail": ""}
-        v = AgentView(name=spec.name, kind="local", lifecycle="running", health="healthy")
-        yield {"event": "done", "agent": v.to_dict()}
+        if wait:
+            yield {"event": "progress", "phase": "creating sandbox", "detail": ""}
+            v = AgentView(name=spec.name, kind="local", lifecycle="running", health="healthy")
+            yield {"event": "done", "agent": v.to_dict()}
+        else:
+            v = AgentView(name=spec.name, kind="local", lifecycle="creating", health="unknown")
+            yield {"event": "accepted", "agent": v.to_dict()}
 
     def register_agent(self, spec):
         return {"agent": AgentView(name=spec.name, kind="remote", lifecycle="registered", health="unknown").to_dict(),

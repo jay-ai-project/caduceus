@@ -227,11 +227,31 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
     P4 shutdown safety.
   - Artifacts: construction/u7-perf-stability/functional-design/{domain-entities,business-logic-model,business-rules}.md
 
+- [x] **U7 Code Generation — Part 1 (Plan)** — **APPROVED** (2026-07-01).
+- [x] **U7 Code Generation — Part 2 (Generation)** — **APPROVED** (2026-07-01)
+  - All 11 plan steps [x]. Modified: agents/{provisioner,health,service}.py, transport/{chat,supervisor}.py,
+    daemon/{wiring,gateway,control_api}.py, cli/{client,app}.py, README.md; tests/fakes.py + unit
+    (agent_service, chat_service, supervisor, control_api, cli) + new tests/pbt/test_u7_properties.py.
+  - **225 unit + PBT tests pass** (was 208; +17). No new runtime dependency.
+  - Artifacts: construction/u7-perf-stability/code/code-summary.md.
+
+- [x] **U7 Build & Test** — complete & **APPROVED** — U7 cycle ✅ COMPLETE
+  - Build ✅ (editable import clean; no new runtime dep). Tests ✅ **228** (225 unit+PBT +3 e2e).
+  - Live ✅ (Docker+sbx+hermes 0.17.0+Ollama): `agent ls` flat in N (1 `sbx ls`; 2 agents 3.77s,
+    empty 4.10→1.22s); background create returns 1.31s → `creating`→`running/healthy` ~6s; warm first
+    chat (PONG/OK) no cold stall; `gateway stop` left sandboxes running; `gateway start` reconnected
+    both to running/healthy, chat-able.
+  - **Defect U7-L1 fixed live**: `sbx ls` timeout propagated → `agent ls` error; now `list_statuses`
+    catches any error → `ok=False` (BR-P2), and `agent ls` skips `sbx ls` when no local agents. PBT-P3 updated.
+  - Artifacts: construction/build-and-test/u7-perf-stability-build-and-test-summary.md.
+
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (U7 Performance & Stability) — Functional Design (light) complete,
-  awaiting approval gate.
-- **Current Stage**: U7 Functional Design (gate).
-- **Next Stage**: U7 Code Generation.
+- **Lifecycle Phase**: CONSTRUCTION (U7 Performance & Stability) — ✅ COMPLETE & APPROVED.
+- **Current Stage**: — (Operations placeholder).
+- **Next Stage**: —
+- **U7 Performance & Stability**: ✅ COMPLETE & APPROVED — Requirements + Plan + FD + CodeGen +
+  Build & Test all approved. 228 tests; live-verified (fast `agent ls`, background create, warm
+  first chat, gateway stop/start reconnect).
 - **U6 Gateway Config**: ✅ COMPLETE & APPROVED — Requirements + Plan + FD + CodeGen + Build & Test all approved. 208/208; live offline + hot-apply verified.
 - (prior) U5 Gateway Web UI: 🟢 COMPLETE (committed); U1–U4 + Build & Test: ✅ COMPLETE & APPROVED.
 - **U5 Gateway Web UI**: 🟢 COMPLETE pending gate — Requirements + Plan + FD + CodeGen approved; Build & Test done. 174/174 tests; live verified.

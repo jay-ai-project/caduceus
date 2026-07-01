@@ -38,12 +38,12 @@ async def test_list_agents_strips_secrets():
     assert data[0]["name"] == "a1" and data[0]["has_session"] is True
 
 
-async def test_create_agent_streams_progress_then_done():
+async def test_create_agent_wait_streams_progress_then_done():
     import json
 
     services = build_fake_services()
     async with _client(services) as c:
-        async with c.stream("POST", "/agents", json={"name": "new1"}) as resp:
+        async with c.stream("POST", "/agents", params={"wait": True}, json={"name": "new1"}) as resp:
             assert resp.status_code == 200
             events = [json.loads(line[len("data:"):]) for line in
                       [ln async for ln in resp.aiter_lines() if ln.startswith("data:")]]
@@ -51,6 +51,22 @@ async def test_create_agent_streams_progress_then_done():
     assert "creating sandbox" in phases                    # progress streamed
     done = [e for e in events if e["event"] == "done"]
     assert len(done) == 1 and done[0]["agent"]["name"] == "new1"  # final result
+
+
+async def test_create_agent_default_is_background_accepted():
+    import json
+
+    services = build_fake_services()
+    async with _client(services) as c:
+        async with c.stream("POST", "/agents", json={"name": "bg1"}) as resp:  # no wait
+            assert resp.status_code == 200
+            events = [json.loads(line[len("data:"):]) for line in
+                      [ln async for ln in resp.aiter_lines() if ln.startswith("data:")]]
+    accepted = [e for e in events if e["event"] == "accepted"]
+    assert len(accepted) == 1
+    assert accepted[0]["agent"]["name"] == "bg1"
+    assert accepted[0]["agent"]["lifecycle"] == "creating"  # returns immediately (FR-U7-2)
+    assert not [e for e in events if e["event"] == "progress"]  # no blocking provisioning
 
 
 async def test_chat_streams_sse():

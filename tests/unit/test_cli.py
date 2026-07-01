@@ -54,18 +54,27 @@ def test_daemon_down_exit_code(monkeypatch):
     assert "not running" in (res.stdout + str(res.stderr)).lower()
 
 
-def test_agent_create(monkeypatch):
+def test_agent_create_background_default(monkeypatch):
+    # default: create returns immediately; provisioning continues in the background
     _patch_client(monkeypatch)
     res = runner.invoke(cli_app.app, ["agent", "create", "new1"])
     assert res.exit_code == 0
+    assert "creating agent 'new1' in the background" in res.stdout
+    assert "creating sandbox" not in res.output  # no blocking provisioning progress
+
+
+def test_agent_create_wait(monkeypatch):
+    _patch_client(monkeypatch)
+    res = runner.invoke(cli_app.app, ["agent", "create", "new1", "--wait"])
+    assert res.exit_code == 0
     assert "created agent 'new1'" in res.stdout
-    assert "creating sandbox" in res.output  # provisioning progress shown
+    assert "creating sandbox" in res.output      # provisioning progress shown
 
 
 def test_agent_create_json_stdout_is_clean(monkeypatch):
     # progress goes to stderr; --json stdout must be parseable JSON
     _patch_client(monkeypatch)
-    res = runner.invoke(cli_app.app, ["agent", "create", "new1", "--json"])
+    res = runner.invoke(cli_app.app, ["agent", "create", "new1", "--wait", "--json"])
     assert res.exit_code == 0
     data = json.loads(res.stdout)              # stdout is pure JSON
     assert data[0]["name"] == "new1"

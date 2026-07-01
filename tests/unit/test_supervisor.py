@@ -60,6 +60,21 @@ async def test_healthy_no_restart():
     assert h.state().circuit == CircuitState.closed
 
 
+async def test_non_running_agent_not_supervised():
+    # A `creating`/`stopped`/`failed` agent is skipped entirely (BR-P11), so an
+    # unhealthy probe never triggers a restart that would fight the provisioner.
+    from caduceus.common.models import Lifecycle
+
+    for lc in (Lifecycle.creating, Lifecycle.stopped, Lifecycle.failed):
+        h = Harness()
+        h.rec.lifecycle = lc
+        h.healthy = False
+        for _ in range(4):
+            await h.sweep()
+        assert h.restarts == 0
+        assert h.state() is None  # no supervision state created for a skipped agent
+
+
 async def test_local_unhealthy_restarts_after_threshold():
     h = Harness()
     h.healthy = False
