@@ -33,6 +33,15 @@ def render_hermes_config(aigateway_url: str, model_alias: str = "default", api_k
     `key_env` for every path — so an inline `api_key` is required for the agent
     to authenticate to the caduceus AI-Gateway. The file lives only inside the
     agent's isolated sandbox (written 600).
+
+    `approvals.mode: off` runs the agent unattended: caduceus drives hermes over
+    the API server with no human in the approval loop, so hermes' default
+    `manual` mode would BLOCK dangerous commands / execute_code on an
+    `approval.request` event forever (the run hangs `waiting_for_approval` and
+    the model retries indefinitely). `off` bypasses every approval prompt; the
+    unconditional hardline blocklist + sudo-stdin guard remain as safety floors
+    that `off` cannot lift. (hermes normalizes both the string `"off"` and the
+    YAML-bool `off`; we quote it to keep intent explicit.)
     """
     lines = [
         "model:",
@@ -44,6 +53,9 @@ def render_hermes_config(aigateway_url: str, model_alias: str = "default", api_k
     if api_key:
         lines.append(f"  api_key: {api_key}")
         lines.append("  key_env: OPENAI_API_KEY")
+    # Unattended operation (BR-Q8): no human is present to answer approvals.
+    lines.append("approvals:")
+    lines.append('  mode: "off"')
     return "\n".join(lines) + "\n"
 
 
@@ -71,5 +83,8 @@ def remote_setup_guidance(aigateway_url: str, token: str, model_alias: str = "de
         "  2. Route its LLM provider through the caduceus AI-Gateway:\n"
         f"       base_url = {aigateway_url}\n"
         f"       api_key (OPENAI_API_KEY) = {token}\n"
-        f"       model = {model_alias}"
+        f"       model = {model_alias}\n"
+        "  3. Set `approvals.mode: off` in its config.yaml so it runs unattended;\n"
+        "     otherwise hermes blocks dangerous commands waiting for an in-chat approval\n"
+        "     that caduceus never sends, and the turn hangs."
     )
