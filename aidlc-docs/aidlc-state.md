@@ -180,10 +180,58 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - Config routes loopback-only, no Docker needed. Performance N/A (personal tool).
   - Artifacts: construction/build-and-test/u6-gateway-config-build-and-test-summary.md.
 
+## 🔵 NEW CYCLE — U7 Performance & Stability (started 2026-07-01)
+- **Trigger**: user request — evaluate/improve overall perf & stability: (1) `agent ls` too slow;
+  (2) agent only boots on first chat → `create` should reach chat-ready; (3) `create` should
+  provision in background (non-blocking) with live `agent ls` state; running+healthy ⇒ chat now;
+  (4) fix mis-reported status; decouple gateway shutdown from agent sandboxes; reconnect running
+  agents on daemon restart.
+- **Phase**: INCEPTION — Requirements Analysis.
+- **Diagnosis (confirmed)**: `sbx ls --json` ~2.5–3.9s, called 2×N in `AgentService.list(probe=True)`
+  (provisioner.status + HealthChecker shallow) → slowness. `create` never starts `hermes acp` → first
+  chat pays ACP cold start. CLI blocks up to PROVISION_TIMEOUT=1800s. Lifecycle reconcile has a
+  present-sandbox→failed/stopped edge; daemon lifecycle entangled with agent perception.
+- [x] Requirements Analysis (U7) — complete, **awaiting approval gate**
+  - Answers (all A): Q1=A async create + `--wait`; Q2=A full ACP warm-up (no LLM spend); Q3=A single
+    batched `sbx ls` snapshot for reconcile+shallow-health; Q4=A fully decouple gateway/sandbox +
+    reconcile-from-`sbx` on boot; Q5=A background failure → `lifecycle=failed` + detail, compensate.
+  - Extensions inherited: Security=No, Resiliency=Yes/full, PBT=Yes/full.
+  - Scope: `caduceus/agents/{service,health,provisioner}.py`, `transport/{chat,supervisor}.py`,
+    `daemon/{gateway,wiring,control_api}.py`, `cli/{app,client}.py`.
+  - Artifacts: requirements/u7-perf-stability-verification-questions.md,
+    requirements/u7-perf-stability-requirements.md.
+- [x] Requirements Analysis (U7) — **APPROVED** (2026-07-01).
+- [x] Workflow Planning (U7) — complete, **awaiting approval gate**
+  - Stages to EXECUTE: Functional Design (light) → Code Generation → Build & Test.
+  - Stages to SKIP: Application Design, Units Generation, NFR Requirements, NFR Design,
+    Infrastructure Design (all inherit U1–U4 + shared-infrastructure.md).
+  - Risk: Medium (async state machine + shutdown decouple + boot reconcile touch daemon/Supervisor;
+    must preserve fail-fast gate, session continuity, terminal-event invariant, all 211 tests).
+    Rollback: Moderate. Testing: Moderate.
+  - Critical path: agents/service.py → transport/chat.py → daemon/gateway.py+wiring.py → control_api+cli.
+  - Artifacts: plans/u7-perf-stability-execution-plan.md.
+- [x] Workflow Planning (U7) — **APPROVED** (2026-07-01).
+
+### 🟢 CONSTRUCTION (U7)
+- [x] **U7 Functional Design** (light) — **APPROVED** (2026-07-01)
+  - Decisions (inline, adaptive — requirements were specific, no separate question round):
+    - No breaking model changes: reuse AgentRecord/Lifecycle/HealthStatus; failure cause carried in
+      `last_health.detail`. New in-memory `SandboxSnapshot` (one `sbx ls`, `ok` flag) + `ProvisioningJob`.
+    - L1 fast list: `provisioner.list_statuses()` once/list, reused for reconcile + shallow health;
+      `HealthChecker.check(rec, deep, sandbox_status=None)` avoids re-probe.
+    - L2 async create: register `creating` + return; bg saga → running → warm → healthy; `--wait` blocks.
+    - L3 warm-up: `ChatService.warm(name)` opens pooled ACP (initialize+session/new, no LLM), reused first turn.
+    - L4 shutdown decouple: no sbx stop/rm on shutdown (stdio-only teardown). L5 boot `reconcile_all()`.
+    - L6 supervisor supervises only `running` agents.
+  - Rules BR-P1..P15; PBT-P1 reconcile totality, P2 async state machine, P3 single-snapshot invariant,
+    P4 shutdown safety.
+  - Artifacts: construction/u7-perf-stability/functional-design/{domain-entities,business-logic-model,business-rules}.md
+
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (U6 Gateway Config) — ✅ COMPLETE & APPROVED.
-- **Current Stage**: — (Operations placeholder).
-- **Next Stage**: —
+- **Lifecycle Phase**: CONSTRUCTION (U7 Performance & Stability) — Functional Design (light) complete,
+  awaiting approval gate.
+- **Current Stage**: U7 Functional Design (gate).
+- **Next Stage**: U7 Code Generation.
 - **U6 Gateway Config**: ✅ COMPLETE & APPROVED — Requirements + Plan + FD + CodeGen + Build & Test all approved. 208/208; live offline + hot-apply verified.
 - (prior) U5 Gateway Web UI: 🟢 COMPLETE (committed); U1–U4 + Build & Test: ✅ COMPLETE & APPROVED.
 - **U5 Gateway Web UI**: 🟢 COMPLETE pending gate — Requirements + Plan + FD + CodeGen approved; Build & Test done. 174/174 tests; live verified.
