@@ -7,6 +7,48 @@ into the config file), so the rendered text contains no secret.
 
 from __future__ import annotations
 
+#: Toolsets we render explicitly into `platform_toolsets.api_server`.
+#:
+#: caduceus drives every agent over the hermes **api_server** platform. When
+#: `platform_toolsets.api_server` is ABSENT, hermes falls back to a subset-inference
+#: path (does the configurable toolset's tools ⊆ the `hermes-api-server` composite?)
+#: to decide which toolsets are on. That path silently drops `terminal`: the desktop-only
+#: `read_terminal` tool registers itself into the `terminal` toolset once the full tool
+#: registry loads, so `resolve_toolset("terminal") == {terminal, process, read_terminal}`,
+#: and `read_terminal` is NOT in the `hermes-api-server` composite → the subset check fails
+#: → `terminal` (and `process`) never reach the model. The agent then has only `execute_code`
+#: and loops forever trying to call a non-existent `terminal()` from inside the sandbox.
+#:
+#: Rendering this list explicitly forces hermes' "explicit config" branch (direct membership,
+#: no subset inference), so `terminal` survives. The list mirrors the `hermes-api-server`
+#: default's *intent* (its composite mapped back to configurable toolset keys) PLUS `terminal`
+#: — i.e. exactly what a native `hermes gateway run` would expose if not for the read_terminal
+#: bug. Interactive-only toolsets (clarify, tts, computer_use) and default-off ones
+#: (homeassistant, spotify, moa, video, x_search) are intentionally excluded, matching the
+#: api_server platform's non-interactive default.
+#:
+#: `web` is listed for forward-compat: `web_search`/`web_extract` are check_fn-gated on a
+#: configured search backend (exa/tavily/firecrawl/ddgs/…), which caduceus does not yet
+#: provision — so today those tools are simply filtered out and never reach the model
+#: (removing the toolset key changes nothing the model sees). Keeping the key here means the
+#: moment a backend IS configured, the tools light up with no code change. Until then the
+#: `tool_loop_guardrails.hard_stop` set below bounds any hallucinated web_search() retries.
+API_SERVER_TOOLSETS = (
+    "browser",
+    "code_execution",
+    "cronjob",
+    "delegation",
+    "file",
+    "image_gen",
+    "memory",
+    "session_search",
+    "skills",
+    "terminal",
+    "todo",
+    "vision",
+    "web",
+)
+
 
 def provider_settings(aigateway_url: str, model_alias: str = "default") -> dict:
     """Structured provider config — the invariant target for tests/PBT.
@@ -57,6 +99,20 @@ def render_hermes_config(aigateway_url: str, model_alias: str = "default",
     # Unattended operation (BR-Q8): no human is present to answer approvals.
     lines.append("approvals:")
     lines.append('  mode: "off"')
+    # Pin the api_server toolset surface explicitly so `terminal` reaches the model.
+    # Without this, hermes' subset-inference for an unspecified api_server platform drops
+    # `terminal` (read_terminal pollutes the `terminal` toolset; see API_SERVER_TOOLSETS).
+    lines.append("platform_toolsets:")
+    lines.append("  api_server:")
+    for toolset in API_SERVER_TOOLSETS:
+        lines.append(f"  - {toolset}")
+    # Bound the tool loop: hermes ships with hard_stop DISABLED, so when the model wants a
+    # capability it lacks (e.g. web_search with no search backend) it can retry a failing /
+    # hallucinated tool call forever. Enabling hard_stop makes hermes abort the turn after a
+    # run of repeated failures / no-progress calls (default thresholds kept). Defence in depth
+    # against runaway turns for ANY missing-or-failing tool, not just web. (BR-Q8)
+    lines.append("tool_loop_guardrails:")
+    lines.append("  hard_stop_enabled: true")
     if workspace:
         # Point the agent's gateway cwd at its persistent (bind-mounted) workspace so
         # artifacts land there, not in the ephemeral HERMES_HOME. Set via config (not the
