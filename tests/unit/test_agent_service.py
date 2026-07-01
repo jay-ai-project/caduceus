@@ -9,7 +9,6 @@ from caduceus.common.models import AgentKind, Lifecycle
 from tests.fakes import FakeHealthChecker, FakeImageBuilder, FakeProvisioner
 
 AIGW = "http://172.17.0.1:9701/v1"
-CONFIG_PATH = "/root/.hermes/config.yaml"
 
 
 def make_service(tmp_path, provisioner=None):
@@ -30,7 +29,7 @@ async def test_create_happy(tmp_path):
     assert rec.lifecycle == Lifecycle.running
     assert reg.get("my-agent-1") is not None
     # provider-config invariant (P-U2-3): config points at the AI-Gateway, model=default
-    cfg = prov.files[("cad-my-agent-1", CONFIG_PATH)]
+    cfg = prov.configs["cad-my-agent-1"]
     assert AIGW in cfg
     assert "default" in cfg
     # token delivered via env, not argv/config
@@ -45,8 +44,8 @@ async def test_create_duplicate_rejected(tmp_path):
 
 
 async def test_create_rollback_on_failure(tmp_path):
-    # put_file runs after the container is created → exercises the compensation path
-    prov = FakeProvisioner(fail_on="put_file")
+    # write_config runs after the container is created → exercises the compensation path
+    prov = FakeProvisioner(fail_on="write_config")
     reg, svc, _ = make_service(tmp_path, prov)
     with pytest.raises(ProxyError):
         await svc.create("a")
@@ -161,11 +160,11 @@ async def test_create_background_returns_creating_then_ready(tmp_path):
     # drain the scheduled background job
     await svc.await_jobs(timeout=5.0)
     assert reg.get("bg").lifecycle == Lifecycle.running  # provisioned in the background
-    assert prov.files[("cad-bg", CONFIG_PATH)]           # config written
+    assert prov.configs["cad-bg"]           # config written
 
 
 async def test_create_background_failure_marks_failed(tmp_path):
-    prov = FakeProvisioner(fail_on="put_file")
+    prov = FakeProvisioner(fail_on="write_config")
     reg, svc, _ = make_service(tmp_path, prov)
     rec = await svc.create("bad", wait=False)
     assert rec.lifecycle == Lifecycle.creating

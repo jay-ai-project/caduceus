@@ -42,6 +42,22 @@ All scenarios PASS:
   after `docker start` (as `reconcile_all` already did on boot). Verified live (44628→44629,
   healthy) + regression test `test_start_refreshes_endpoint_after_restart`.
 
+## Post-approval change: adopt the official hermes image (2026-07-01)
+Replaced the hand-maintained slim Dockerfile with the **official `nousresearch/hermes-agent`**
+image, pinned to **`v2026.6.19`** (parity with hermes 0.17.0). Rationale: full toolchain out of
+the box (Python, **Node + Playwright/Chromium**, ffmpeg, git, ripgrep, Docker CLI, curl/wget) →
+web fetch + browser automation + code execution, and no Dockerfile to maintain.
+- **Provisioning changes**: `ImageBuilder` now `docker pull`s (no build); `images/hermes/Dockerfile`
+  removed. The image keeps state under **`/opt/data`** (HERMES_HOME) and its init chowns that dir
+  to its internal user (UID 10000). caduceus bind-mounts `<workspace>:/opt/data`, writes the LLM
+  config host-side to `<ws>/config.yaml` before start, and **resets workspace ownership via a
+  one-shot root helper** (`docker run --entrypoint chown …`) when re-provisioning a name whose dir
+  was previously chowned. Container command is `gateway run`.
+- **Live-verified**: pull `v2026.6.19` (3.79 GB); create→running/healthy; `/opt/data/config.yaml`
+  present; node+playwright present in-container; chat "READY" via AI-Gateway→Ollama; **re-create**
+  same name (ownership reset) → healthy; **stop→start** endpoint refresh (U8-D5) → recovers healthy.
+  244 unit+PBT pass.
+
 ## Security (advisory, Q9 — non-blocking)
 - Loopback-only publish (`127.0.0.1::8642`) confirmed live; Bearer required (bad key → 401);
   strong minted tokens; secrets via env/`docker cp` 600, not argv; fail-closed errors. No blocking

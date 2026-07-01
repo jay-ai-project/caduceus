@@ -1,30 +1,26 @@
-"""ImageBuilder — build/ensure the hermes agent image (idempotent).
+"""ImageBuilder — ensure the agent image is present (idempotent).
 
-U8: the image is built with `docker build` and used **directly** by `docker run`.
-(The former `docker save | sbx template load` bridging is gone — there is no separate
-sbx image store anymore.) The Dockerfile lives at `images/hermes/Dockerfile` and installs
-a hermes build that ships `hermes gateway run` (the API server).
+U8: caduceus uses the **official** `nousresearch/hermes-agent` image (pinned to a version
+tag) rather than a hand-maintained Dockerfile. It ships the full agent toolchain (Python,
+Node + Playwright/Chromium, ffmpeg, git, ripgrep, Docker CLI, ssh, ...) and runs the hermes
+API server via `gateway run`. `ensure_image` `docker pull`s it if absent.
 """
 
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 from caduceus.common.errors import upstream_error
 from caduceus.common.logging import get_logger
 
 log = get_logger("caduceus.images")
 
-DEFAULT_TAG = "caduceus/hermes:0.17.0"
-DEFAULT_HERMES_VERSION = "0.17.0"
-#: hermes-agent git tags are date-based; v2026.6.19 == release 0.17.0 (host parity).
-DEFAULT_HERMES_GIT_REF = "v2026.6.19"
+#: Official image, pinned to a version tag (parity with hermes 0.17.0 / v2026.6.19).
+DEFAULT_TAG = "nousresearch/hermes-agent:v2026.6.19"
 
 
 class ImageBuilder:
-    def __init__(self, context_dir: str | Path, docker_bin: str = "docker"):
-        self._context = Path(context_dir)
+    def __init__(self, docker_bin: str = "docker"):
         self._docker = docker_bin
 
     async def image_exists(self, tag: str) -> bool:
@@ -35,11 +31,10 @@ class ImageBuilder:
         rc = await asyncio.wait_for(proc.wait(), timeout=30.0)
         return rc == 0
 
-    async def ensure_image(self, tag: str = DEFAULT_TAG, hermes_version: str = DEFAULT_HERMES_VERSION,
-                           git_ref: str = DEFAULT_HERMES_GIT_REF, progress=None) -> str:
-        """Build the image if absent; return the tag.
+    async def ensure_image(self, tag: str = DEFAULT_TAG, progress=None) -> str:
+        """Pull the image if absent; return the tag.
 
-        `progress(phase, detail="")` (optional, sync or async) is called for the slow step."""
+        `progress(phase, detail="")` (optional, sync or async) is called for the slow pull."""
         async def _emit(phase: str, detail: str = "") -> None:
             if progress is None:
                 return
@@ -49,16 +44,13 @@ class ImageBuilder:
 
         if await self.image_exists(tag):
             return tag
-        log.info("building hermes image %s (version %s, ref %s)", tag, hermes_version, git_ref)
-        await _emit("building image", "first run, may take a few minutes")
+        log.info("pulling agent image %s", tag)
+        await _emit("pulling image", "first run, this can take a while (large image)")
         proc = await asyncio.create_subprocess_exec(
-            self._docker, "build", "-t", tag,
-            "--build-arg", f"HERMES_VERSION={hermes_version}",
-            "--build-arg", f"HERMES_GIT_REF={git_ref}",
-            str(self._context),
+            self._docker, "pull", tag,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=1800.0)
         if proc.returncode != 0:
-            raise upstream_error(f"docker build failed: {out.decode('utf-8', 'replace')[-400:]}")
+            raise upstream_error(f"docker pull failed: {out.decode('utf-8', 'replace')[-400:]}")
         return tag

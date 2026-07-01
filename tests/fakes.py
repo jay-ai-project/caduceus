@@ -23,7 +23,7 @@ class FakeProvisioner:
     def __init__(self, fail_on: str | None = None, unavailable_runtimes: Optional[set[str]] = None):
         # container -> "created" | "running" | "stopped"
         self.containers: dict[str, str] = {}
-        self.files: dict[tuple[str, str], str] = {}
+        self.configs: dict[str, str] = {}
         self.env: dict[str, str] = {}
         self.runtimes: dict[str, str] = {}
         self.ports: dict[str, int] = {}
@@ -54,9 +54,9 @@ class FakeProvisioner:
         self.calls.append("host_port")
         return self.ports.get(container)
 
-    async def put_file(self, container: str, path: str, content: str) -> None:
-        self._maybe_fail("put_file")
-        self.files[(container, path)] = content
+    async def write_config(self, container: str, content: str) -> None:
+        self._maybe_fail("write_config")
+        self.configs[container] = content
 
     async def stop(self, container: str) -> None:
         self._maybe_fail("stop")
@@ -99,8 +99,8 @@ class FakeImageBuilder:
     async def image_exists(self, tag: str) -> bool:
         return True
 
-    async def ensure_image(self, tag: str = "caduceus/hermes:0.17.0", hermes_version: str = "0.17.0",
-                           git_ref: str = "v2026.6.19", progress=None) -> str:
+    async def ensure_image(self, tag: str = "nousresearch/hermes-agent:v2026.6.19",
+                           progress=None) -> str:
         self.built.append(tag)
         return tag
 

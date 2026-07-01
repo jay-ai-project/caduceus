@@ -67,7 +67,7 @@ def test_pbt_p1_reconcile_totality(present, stval, start):
 
 # ---- PBT-P2: async create state machine -------------------------------
 @settings(max_examples=20, deadline=None)
-@given(fail_on=st.sampled_from([None, "create", "put_file"]))
+@given(fail_on=st.sampled_from([None, "create", "write_config"]))
 def test_pbt_p2_async_state_machine(fail_on):
     async def _run():
         reg = Registry(_tmp_state()); reg.load()

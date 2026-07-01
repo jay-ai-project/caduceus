@@ -92,7 +92,7 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
     registry.load()
 
     provisioner = DockerProvisioner()
-    images = ImageBuilder(context_dir=_repo_images_dir())
+    images = ImageBuilder()
 
     async def _upstream_reachable() -> bool:
         return await _endpoint_reachable(settings.upstream_base_url)
@@ -211,11 +211,6 @@ def _make_reload(provisioner, restart):
         # else hot_reload: Build & Test confirms the reload signal mechanism.
         return None
     return _reload
-
-
-def _repo_images_dir() -> str:
-    # images/hermes lives at the repo root next to the package.
-    return str(Path(__file__).resolve().parents[2] / "images" / "hermes")
 
 
 def _detect_bridge_gateway() -> Optional[str]:

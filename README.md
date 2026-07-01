@@ -65,7 +65,7 @@ responses, thinking, and tool-call display.
 ## Requirements
 
 - **Python 3.11+**
-- For **local containerized agents**: [Docker](https://www.docker.com/) Engine. Caduceus builds the bundled hermes image automatically on first `agent create`. Optionally, [gVisor](https://gvisor.dev/) (`runsc`) for stronger sandboxing — see [`caduceus doctor`](#cli) and `gateway config --runtime`.
+- For **local containerized agents**: [Docker](https://www.docker.com/) Engine. Caduceus pulls the official [`nousresearch/hermes-agent`](https://hermes-agent.nousresearch.com/docs/user-guide/docker) image automatically on first `agent create` (it's large — ~3.8 GB — as it bundles the full agent toolchain). Optionally, [gVisor](https://gvisor.dev/) (`runsc`) for stronger sandboxing — see [`caduceus doctor`](#cli) and `gateway config --runtime`.
 - An **OpenAI-compatible LLM endpoint** for the upstream (e.g. [Ollama](https://ollama.com/), llama.cpp server, LM Studio, vLLM, or a hosted API).
 
 > Remote-only usage (registering existing hermes API servers) does not require Docker.
@@ -194,6 +194,14 @@ how Caduceus surfaces streaming output, thinking, and tool calls. Local agent co
 publish their API server on a host **loopback** port (bearer-authenticated); sessions are
 persisted per agent and transparently resumed. Container isolation uses `runc` by default, or
 `runsc` (gVisor) when configured.
+
+Local agents run the **official `nousresearch/hermes-agent` image** (pinned to a version tag),
+which ships the full agent toolchain — Python, **Node + Playwright/Chromium**, `ffmpeg`, `git`,
+`ripgrep`, the Docker CLI, `curl`/`wget`, and more — so agents can do web fetch, browser
+automation, and code execution out of the box. Each agent's host workspace is bind-mounted at
+**`/opt/data`** (the image's `HERMES_HOME`), so its config, sessions, and files persist on the
+host under `~/.caduceus/agents/<agent>/workspace`. The official image manages that directory as
+its own internal user, so caduceus resets ownership as needed when re-provisioning an agent.
 
 ## Development
 

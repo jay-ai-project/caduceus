@@ -12,13 +12,13 @@ pip install -e .            # installs `caduceus`; deps: fastapi, uvicorn, httpx
 caduceus --help             # verify entry point
 ```
 
-### Build the agent image (done automatically on first `agent create`)
+### Agent image (pulled automatically on first `agent create`)
 ```bash
-docker build -t caduceus/hermes:0.17.0 \
-  --build-arg HERMES_VERSION=0.17.0 --build-arg HERMES_GIT_REF=v2026.6.19 images/hermes
+docker pull nousresearch/hermes-agent:v2026.6.19   # official image, ~3.8 GB
 ```
-- The image installs `hermes-agent` (base) + `aiohttp` (required by the API-server platform)
-  and runs `hermes gateway run` (API server on :8642).
+- caduceus uses the **official** `nousresearch/hermes-agent` image (pinned version tag). It
+  ships the full toolchain (Python, Node+Playwright/Chromium, ffmpeg, git, ripgrep, Docker CLI,
+  curl/wget, ...) and runs the API server via `gateway run` (:8642). No custom Dockerfile.
 
 ## Verify build
 - `python -c "import caduceus"` → OK.

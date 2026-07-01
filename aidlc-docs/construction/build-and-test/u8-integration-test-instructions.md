@@ -14,9 +14,10 @@ caduceus doctor                    # docker/image/runtime/gVisor/daemon readines
 ## Scenarios
 1. **doctor** — reports Docker OK, image (built or not), `container runtime runc` OK, gVisor
    available/absent, daemon running. `--runtime runsc` when absent → `doctor` FAIL + guidance.
-2. **image build (in-container API server)** — `docker run` the image with `API_SERVER_ENABLED=true
-   API_SERVER_KEY=k API_SERVER_HOST=0.0.0.0 API_SERVER_PORT=8642 -p 127.0.0.1::8642`; then
-   `GET /health` (200) and `POST /api/sessions` (Bearer) return a session id.
+2. **official image (in-container API server)** — `docker run nousresearch/hermes-agent:v2026.6.19
+   gateway run` with `API_SERVER_ENABLED=true API_SERVER_KEY=<strong> API_SERVER_HOST=0.0.0.0
+   API_SERVER_PORT=8642 -p 127.0.0.1::8642 -v <ws>:/opt/data`; then `GET /health` (200) and
+   `POST /api/sessions` (Bearer) return a session id. Config lives at `/opt/data/config.yaml`.
 3. **agent create (background)** — `caduceus agent create a1`; returns immediately (`creating`);
    `agent ls` shows `creating → running/healthy` within seconds; container published on a
    loopback port; hermes config copied in.

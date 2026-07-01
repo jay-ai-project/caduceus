@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 
 from caduceus.agents.hermes_config import api_server_env, remote_setup_guidance, render_hermes_config
 from caduceus.agents.names import container_name, validate_name
-from caduceus.agents.provisioner import HERMES_CONFIG_PATH
 from caduceus.agents.tokens import mint_token
 from caduceus.common.errors import ProxyError, invalid_request_error, upstream_error
 from caduceus.common.logging import get_logger
@@ -49,7 +48,7 @@ class AgentService:
         image_builder,
         health_checker,
         aigateway_url: str,
-        image_tag: str = "caduceus/hermes:0.17.0",
+        image_tag: str = "nousresearch/hermes-agent:v2026.6.19",
         model_alias: str = "default",
         runtime_provider=None,
         transport_closer=None,
@@ -132,9 +131,8 @@ class AgentService:
             # Write the hermes LLM config into the (created, not-yet-started) container so
             # the API server boots with it present.
             await emit("configuring agent")
-            await self.provisioner.put_file(
-                cn, HERMES_CONFIG_PATH,
-                render_hermes_config(self.aigateway_url, self.model_alias, api_key=token))
+            await self.provisioner.write_config(
+                cn, render_hermes_config(self.aigateway_url, self.model_alias, api_key=token))
             # Docker assigns the published ephemeral host port at START, not create — so
             # start first, then read it back (Build & Test, U8-D3).
             await emit("starting agent")
