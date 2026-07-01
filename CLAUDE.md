@@ -51,3 +51,18 @@ rather than full ceremony, and let the plan show what will actually run.
 During Requirements Analysis, offer the opt-in extensions found under
 `aidlc-rules/rule-details/extensions/` (Resiliency Baseline, Security Baseline,
 Property-Based Testing). Load an extension's full rules only after the user opts in.
+
+## Test Delegation (subagent workflow)
+
+When an implementation slice is functionally complete and it's time to add/update
+tests, delegate instead of doing it inline:
+
+- **Writing tests** → spawn a **`fork`** subagent (inherits this session's context
+  so it knows what was built) and have it follow `.claude/agents/e2e-test-writer.md`.
+- **Running e2e/browser (Playwright) tests** → spawn the clean-context
+  **`e2e-test-runner`** subagent (no fork); it runs the suite objectively and
+  returns a compact result so large reports never bloat this context.
+
+Full protocol: @.claude/rules/test-delegation-workflow.md
+This block + the two `.claude/agents/*` files are a portable template — copy them
+into other projects to reuse the workflow.

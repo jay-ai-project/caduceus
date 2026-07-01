@@ -22,6 +22,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "anyio>=4",
     "hypothesis>=6",
+    "playwright>=1.61",  # browser E2E for the Web UI (tests/e2e/, async API)
 ]
 
 [project.scripts]
@@ -37,5 +38,8 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q"
 pythonpath = ["."]
+markers = [
+    "e2e: browser end-to-end tests (Playwright + headless Chromium)",
+]
 
 # Hypothesis seed/reproduction logging (PBT-08) is configured in tests/conftest.py via profiles.
