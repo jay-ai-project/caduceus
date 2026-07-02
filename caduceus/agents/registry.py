@@ -11,11 +11,16 @@ import asyncio
 import json
 import os
 import tempfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Optional
 
+from caduceus.common.logging import get_logger
 from caduceus.common.models import AgentRecord
 
 STATE_VERSION = 1
+
+log = get_logger("caduceus.agents.registry")
 
 
 class Registry:
@@ -23,6 +28,22 @@ class Registry:
         self._path = Path(state_path)
         self._lock = asyncio.Lock()
         self._agents: dict[str, AgentRecord] = {}
+        #: optional broadcast hook (U9): fired after every persisted mutation so the
+        #: Web UI event stream reflects create/start/stop/remove/session live.
+        self._on_change: Optional[Callable[[], Awaitable[None]]] = None
+
+    def set_on_change(self, cb: Optional[Callable[[], Awaitable[None]]]) -> None:
+        self._on_change = cb
+
+    async def _notify(self) -> None:
+        # Fired outside the mutation lock; a broadcast failure must never surface to
+        # the caller that mutated the registry.
+        if self._on_change is None:
+            return
+        try:
+            await self._on_change()
+        except Exception as exc:  # noqa: BLE001
+            log.debug("registry on_change hook failed: %s", exc)
 
     # ---- load / save -------------------------------------------------
     def load(self) -> None:
@@ -76,15 +97,21 @@ class Registry:
         async with self._lock:
             self._agents[record.name] = record
             self._save_unlocked()
+        await self._notify()
 
     async def delete(self, name: str) -> None:
         async with self._lock:
             self._agents.pop(name, None)
             self._save_unlocked()
+        await self._notify()
 
     async def set_session(self, name: str, session_id: str) -> None:
+        changed = False
         async with self._lock:
             rec = self._agents.get(name)
             if rec is not None:
                 rec.session_id = session_id
                 self._save_unlocked()
+                changed = True
+        if changed:
+            await self._notify()

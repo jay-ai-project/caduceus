@@ -3,14 +3,13 @@
  */
 "use strict";
 
-const POLL_MS = 3000;  // cheap: /status + /agents?probe=false are registry-only reads
-const TOOL_FIELD_HINT = "(truncated)";
 const $ = (sel, root = document) => root.querySelector(sel);
 
 const state = {
   agents: [],
   selected: null,   // agent name of the open chat
   streaming: false,
+  es: null,         // the /api/events EventSource (push, no polling)
 };
 
 // ---------- tiny DOM helpers ----------
@@ -61,21 +60,24 @@ async function* sseEvents(resp) {
   }
 }
 
-// ================= Dashboard =================
-// Status and agents are fetched independently so each paints the instant it
-// returns (neither blocks the other). Both are cheap/instant: `/status` is a
-// registry read; `/agents?probe=false` is a registry-only projection.
-async function pollStatus() {
-  try { renderHeader(await fetchJSON("/status"), true); }
-  catch (_) { renderHeader(null, false); }
+// ================= Dashboard (push, not poll) =================
+// One long-lived SSE connection to `/api/events` drives the whole dashboard:
+// the server sends a snapshot on connect and a fresh snapshot on every state
+// change (agent create/start/stop/remove/session, or a health sweep). No polling.
+function connectEvents() {
+  if (state.es) state.es.close();
+  const es = new EventSource("/api/events");
+  es.onmessage = (e) => {
+    let msg; try { msg = JSON.parse(e.data); } catch (_) { return; }
+    if (!msg || msg.type !== "snapshot") return;
+    renderHeader(msg.status, true);
+    state.agents = msg.agents || [];
+    renderAgents();
+  };
+  // EventSource auto-reconnects; reflect the outage in the header until it does.
+  es.onerror = () => renderHeader(null, false);
+  state.es = es;
 }
-
-async function pollAgents() {
-  try { state.agents = await fetchJSON("/agents?probe=false"); renderAgents(); }
-  catch (_) { /* transient; header reflects daemon reachability via pollStatus */ }
-}
-
-function poll() { pollStatus(); pollAgents(); }
 
 function renderHeader(status, up) {
   const elS = $("#gw-status");
@@ -133,9 +135,9 @@ function renderAgents() {
 }
 
 async function agentAction(name, action) {
+  // No manual refresh: the mutation broadcasts a fresh snapshot over /api/events.
   try { await fetchJSON(`/agents/${encodeURIComponent(name)}/${action}`, { method: "POST" }); }
   catch (e) { alert(`${action} failed: ${e.message}`); }
-  poll();
 }
 
 async function removeAgent(name) {
@@ -143,7 +145,6 @@ async function removeAgent(name) {
   try { await fetchJSON(`/agents/${encodeURIComponent(name)}?force=true`, { method: "DELETE" }); }
   catch (e) { alert(`remove failed: ${e.message}`); }
   if (state.selected === name) { state.selected = null; showEmpty(); }
-  poll();
 }
 
 // ================= Add agent modal =================
@@ -185,7 +186,8 @@ async function submitLocal(ev) {
     });
     for await (const ev2 of sseEvents(resp)) {
       if (ev2.event === "progress") logLine(`  → ${ev2.phase}${ev2.detail ? " (" + ev2.detail + ")" : ""}`);
-      else if (ev2.event === "done") { logLine(`✓ created '${ev2.agent.name}' (${ev2.agent.lifecycle})`); poll(); setTimeout(closeModal, 700); }
+      else if (ev2.event === "done") { logLine(`✓ created '${ev2.agent.name}' (${ev2.agent.lifecycle})`); setTimeout(closeModal, 700); }
+      else if (ev2.event === "accepted") { logLine(`✓ accepted '${ev2.agent.name}' (${ev2.agent.lifecycle}) — provisioning…`); setTimeout(closeModal, 700); }
       else if (ev2.event === "error") logLine(`✗ error: ${ev2.message}`);
     }
   } catch (e) { logLine(`✗ ${e.message}`); }
@@ -204,7 +206,7 @@ async function submitRemote(ev) {
     });
     logLine(`✓ registered '${name}'`);
     if (res.guidance) logLine(res.guidance);
-    poll();
+    // dashboard refresh arrives via the /api/events snapshot broadcast.
   } catch (e) { logLine(`✗ ${e.message}`); }
 }
 
@@ -351,8 +353,7 @@ function init() {
   });
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 160) + "px"; });
 
-  poll();                      // fire immediately on load (no initial delay)
-  setInterval(poll, POLL_MS);
+  connectEvents();             // open the /api/events push stream (snapshot on connect)
 }
 
 // run now if the DOM is already parsed (script is at end of <body>), else wait

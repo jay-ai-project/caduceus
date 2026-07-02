@@ -75,11 +75,15 @@ class Supervisor:
         restart_threshold: int = 3,
         backoff: tuple[float, ...] = DEFAULT_BACKOFF,
         clock: Callable[[], float] = time.monotonic,
+        on_change: Optional[Callable[[], Awaitable[None]]] = None,
     ):
         self._list_agents = list_agents
         self._health_check = health_check
         self._restart = restart
         self._mark_failed = mark_failed
+        #: optional broadcast hook (U9): fired after each sweep so the Web UI event
+        #: stream reflects freshly-probed agent health without polling.
+        self._on_change = on_change
         self.interval = interval
         self.fail_threshold = fail_threshold
         self.restart_threshold = restart_threshold
@@ -110,6 +114,7 @@ class Supervisor:
         while not self._stop.is_set():
             try:
                 await self._sweep()
+                await self._notify()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 — never let the loop die
@@ -167,6 +172,15 @@ class Supervisor:
             except Exception as exc:  # noqa: BLE001
                 log.warning("supervisor: mark_failed(%s) error: %s", rec.name, exc)
             log.warning("supervisor: circuit OPEN for %s after %d restart attempts", rec.name, state.restart_attempts)
+
+    async def _notify(self) -> None:
+        # Fired after each sweep; a broadcast failure must never break the loop.
+        if self._on_change is None:
+            return
+        try:
+            await self._on_change()
+        except Exception as exc:  # noqa: BLE001
+            log.debug("supervisor on_change hook failed: %s", exc)
 
     # ---- manual recovery (called by U4 on `agent start`) -------------
     def reset_agent(self, name: str) -> None:

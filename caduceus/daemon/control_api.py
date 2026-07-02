@@ -74,6 +74,23 @@ def build_control_app(services, status_provider=None) -> FastAPI:
             )
         return gs.to_dict()
 
+    @app.get("/api/events")
+    async def events():
+        # U9: single long-lived SSE stream powering the Web UI dashboard. Replaces the
+        # old 3s poll of `/status` + `/agents?probe=false`: the client subscribes once,
+        # receives a snapshot on connect, then a fresh snapshot on every state change
+        # (registry mutation or supervisor health sweep). `: comment` lines are SSE
+        # keepalives, ignored by the browser's EventSource.
+        async def gen():
+            async for snap in services.event_bus.subscribe():
+                yield b": keepalive\n\n" if snap is None else _sse(snap)
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     @app.post("/agents")
     async def create(request: Request, wait: bool = False):
         # Default (wait=false, FR-U7-2): register the agent as `creating`, kick off
@@ -129,10 +146,12 @@ def build_control_app(services, status_provider=None) -> FastAPI:
             return _err(exc)
 
     @app.get("/agents")
-    async def list_agents(deep: bool = False, probe: bool = True):
-        # `probe=false` → cheap listing (cached health) for the Web UI dashboard poll.
+    async def list_agents(deep: bool = False):
+        # Live listing for the CLI `agent ls` (one docker ps + per-agent /health probe).
+        # The Web UI no longer calls this — it consumes /api/events, whose snapshot uses
+        # the cheap probe-free registry projection directly (agent_service.list(probe=False)).
         try:
-            recs = await agents.list(deep=deep, probe=probe)
+            recs = await agents.list(deep=deep, probe=True)
             return [AgentView.from_record(r, r.last_health).to_dict() for r in recs]
         except Exception as exc:  # noqa: BLE001
             return _err(exc)

@@ -346,7 +346,17 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
     u8-build-and-test-summary.md.
 
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (U8 HTTP/SSE Transport + Docker Runtime Migration) —
+- **Lifecycle Phase**: CONSTRUCTION (U9 Real-time Dashboard via SSE) — ✅ CODE COMPLETE,
+  awaiting approval gate.
+- **U9 Real-time Dashboard (polling → SSE push)**: Replaced the Web UI's 3s poll of
+  `/status` + `/agents?probe=false` with a single `GET /api/events` SSE stream (llama-swap
+  style). New EventBus (caduceus/daemon/events.py): coalescing per-subscriber, snapshot-on-
+  connect, idle keepalive, fault-isolated. Producers: Registry.on_change (upsert/delete/
+  set_session) + Supervisor on_change (post-sweep) → bus.notify. Frontend app.js switched to
+  native EventSource (auto-reconnect), removed setInterval polling + post-action refreshes.
+  234 unit+PBT (was 223; +11 in tests/unit/test_events.py) + 3 Playwright e2e pass;
+  live-verified on the running daemon (correct snapshot, no busy loop). Not yet committed.
+- **Prior lifecycle phase**: CONSTRUCTION (U8 HTTP/SSE Transport + Docker Runtime Migration) —
   ✅ COMPLETE & APPROVED (→ Operations placeholder).
 - **Current Stage**: — (Operations placeholder).
 - **Next Stage**: —

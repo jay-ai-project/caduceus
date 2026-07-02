@@ -4,8 +4,8 @@ Drives the real SPA in a headless Chromium via Playwright (async API) and
 asserts the core render + one interaction path work end to end:
 
   1. `/` redirects to `/ui/` and the shell loads.
-  2. The gateway status header reflects the live `/status` response.
-  3. The seeded agent is listed from `/agents`.
+  2. The gateway status header reflects the `/api/events` snapshot (push, no poll).
+  3. The seeded agent is listed from the same snapshot.
   4. The "Add agent" modal opens and its tabs toggle.
 
 Run with:  pytest tests/e2e
@@ -30,12 +30,12 @@ async def test_root_redirects_to_ui_and_shell_loads(webui_server: str, page: Pag
 async def test_gateway_status_and_agent_list_render(webui_server: str, page: Page):
     await page.goto(webui_server + "/ui/")
 
-    # Header polls /status and paints "running · N agents · …".
+    # Header is driven by the /api/events snapshot: "running · N agents · …".
     status = page.get_by_test_id("gateway-status")
     await expect(status).to_contain_text("running", timeout=5000)
     await expect(status).to_contain_text("agents")
 
-    # The seeded agent from /agents shows up in the sidebar.
+    # The seeded agent from the same snapshot shows up in the sidebar.
     await expect(page.get_by_test_id("agent-list")).to_contain_text("demo-agent", timeout=5000)
 
 

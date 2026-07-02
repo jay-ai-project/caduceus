@@ -22,7 +22,7 @@ from caduceus.agents.images import ImageBuilder
 from caduceus.agents.provisioner import DockerProvisioner
 from caduceus.agents.registry import Registry
 from caduceus.agents.service import AgentService
-from caduceus.common.dto import ConfigSnapshot, ReloadStrategy
+from caduceus.common.dto import AgentView, ConfigSnapshot, GatewayStatus, ReloadStrategy
 from caduceus.common.logging import get_logger
 from caduceus.common.models import AgentKind, AgentRecord, HealthLevel, Lifecycle
 from caduceus.common.settings import Settings
@@ -44,6 +44,7 @@ class Services:
     gateway_config_service: "object"
     supervisor: "object"
     aigateway_app: "object"
+    event_bus: "object"
     advertise_host: str
 
 
@@ -130,6 +131,28 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
                                  transport_closer=chat_service.close_agent,
                                  warm_hook=chat_service.warm)
 
+    # U9: event bus powering the Web UI `/api/events` push stream. The snapshot is
+    # the exact data the old dashboard polls returned (`/status` + `/agents?probe=false`),
+    # so switching the UI from polling to push is behaviour-preserving.
+    from caduceus.daemon.control_api import VERSION
+    from caduceus.daemon.events import EventBus
+
+    async def _dashboard_snapshot() -> dict:
+        recs = await agent_service.list(deep=False, probe=False)
+        status = GatewayStatus(
+            running=True, control_listener=settings.control_bind,
+            aigateway_listener=settings.aigateway_bind,
+            agent_count=len(registry.list()), version=VERSION,
+        )
+        return {
+            "type": "snapshot",
+            "status": status.to_dict(),
+            "agents": [AgentView.from_record(r, r.last_health).to_dict() for r in recs],
+        }
+
+    event_bus = EventBus(_dashboard_snapshot)
+    registry.set_on_change(event_bus.notify)  # broadcast on create/start/stop/remove/session
+
     async def _restart(rec: AgentRecord) -> None:
         # "restart" = ensure the container is running again (BR-W2/BR-O3). The hermes
         # API server boots with it; chat reconnects over HTTP.
@@ -152,6 +175,7 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
         health_check=health_checker.check,
         restart=_restart,
         mark_failed=_mark_failed,
+        on_change=event_bus.notify,  # broadcast freshly-probed health after each sweep
     )
 
     # U4 config editing (sandbox I/O via provisioner; real codec → Build & Test)
@@ -180,7 +204,8 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
         settings=settings, registry=registry, provisioner=provisioner,
         agent_service=agent_service, chat_service=chat_service,
         config_service=config_service, gateway_config_service=gateway_config_service,
-        supervisor=supervisor, aigateway_app=aigateway_app, advertise_host=advertise,
+        supervisor=supervisor, aigateway_app=aigateway_app, event_bus=event_bus,
+        advertise_host=advertise,
     )
 
 

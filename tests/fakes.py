@@ -381,20 +381,39 @@ class FakeConfigService:
 
 def build_fake_services(agents=None, chat_script=None, config_service=None,
                         gateway_config_service=None):
+    from caduceus.common.dto import AgentView, GatewayStatus
     from caduceus.common.settings import Settings
     from caduceus.config.gateway_config import GatewayConfigService
+    from caduceus.daemon.control_api import VERSION
+    from caduceus.daemon.events import EventBus
 
     reg = FakeRegistry(agents or [])
+    agent_service = FakeAgentService(agents or [])
+
+    async def _dashboard_snapshot() -> dict:
+        recs = await agent_service.list(deep=False, probe=False)
+        status = GatewayStatus(
+            running=True, control_listener="127.0.0.1:9700",
+            aigateway_listener="172.17.0.1:9701",
+            agent_count=len(reg.list()), version=VERSION,
+        )
+        return {
+            "type": "snapshot",
+            "status": status.to_dict(),
+            "agents": [AgentView.from_record(r, r.last_health).to_dict() for r in recs],
+        }
+
     return SimpleNamespace(
         settings=SimpleNamespace(control_bind="127.0.0.1:9700", aigateway_bind="172.17.0.1:9701"),
         registry=reg,
-        agent_service=FakeAgentService(agents or []),
+        agent_service=agent_service,
         chat_service=FakeChatService(chat_script),
         config_service=config_service or FakeConfigService(),
         gateway_config_service=gateway_config_service or GatewayConfigService(
             Settings(upstream_base_url="http://up:11434/v1", default_model="m"),
             config_path="/nonexistent/config.toml"),
         provisioner=FakeProvisioner(),
+        event_bus=EventBus(_dashboard_snapshot),
     )
 
 
