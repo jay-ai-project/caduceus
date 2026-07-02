@@ -269,3 +269,74 @@ def test_agent_view_carries_health_detail():
     view = AgentView.from_record(rec)
     assert view.health_detail == "agent api unreachable"
     assert AgentView.from_dict(view.to_dict()) == view
+
+
+# ---- R16: gateway stop waits for the daemon to exit ------------------
+def test_gateway_stop_waits_for_exit(tmp_path, monkeypatch):
+    import os as os_mod
+
+    from caduceus.daemon.gateway import GatewayService
+
+    gw = GatewayService(settings=Settings(upstream_base_url="http://u", default_model="m"),
+                        state_dir=tmp_path)
+    gw.lock._path.parent.mkdir(parents=True, exist_ok=True)
+    gw.lock._path.write_text("4242", encoding="utf-8")
+    alive = {"v": True}
+    monkeypatch.setattr(gw.lock, "is_running", lambda: alive["v"])
+    killed = []
+
+    def fake_kill(pid, sig):
+        killed.append((pid, sig))
+        alive["v"] = False  # the daemon exits promptly on SIGTERM
+
+    monkeypatch.setattr(os_mod, "kill", fake_kill)
+    assert gw.stop() is True
+    assert killed == [(4242, 15)]
+
+
+def test_gateway_stop_reports_timeout(tmp_path, monkeypatch):
+    import os as os_mod
+
+    from caduceus.daemon.gateway import GatewayService
+
+    gw = GatewayService(settings=Settings(upstream_base_url="http://u", default_model="m"),
+                        state_dir=tmp_path)
+    gw.lock._path.parent.mkdir(parents=True, exist_ok=True)
+    gw.lock._path.write_text("4242", encoding="utf-8")
+    monkeypatch.setattr(gw.lock, "is_running", lambda: True)  # never exits
+    monkeypatch.setattr(os_mod, "kill", lambda pid, sig: None)
+    assert gw.stop(timeout=0.3) is False
+
+
+def test_gateway_stop_not_running_is_ok(tmp_path):
+    from caduceus.daemon.gateway import GatewayService
+
+    gw = GatewayService(settings=Settings(upstream_base_url="http://u", default_model="m"),
+                        state_dir=tmp_path)
+    assert gw.stop() is True  # nothing to stop → success
+
+
+# ---- R17: doctor checks upstream LLM reachability --------------------
+def test_doctor_upstream_not_configured_fails(monkeypatch):
+    from caduceus.config import doctor as doc
+
+    monkeypatch.setattr(doc.shutil, "which", lambda _: None)  # skip docker section
+    report = doc.run_doctor(check_upstream=True, upstream_url=None)
+    up = next(c for c in report.checks if c.name == "upstream LLM")
+    assert up.ok is False and "not configured" in up.detail
+    assert report.ok is False
+
+
+def test_doctor_upstream_reachability(monkeypatch):
+    from caduceus.config import doctor as doc
+
+    monkeypatch.setattr(doc.shutil, "which", lambda _: None)
+    monkeypatch.setattr(doc, "_tcp_reachable", lambda url, timeout=3.0: True)
+    report = doc.run_doctor(check_upstream=True, upstream_url="http://up:11434/v1")
+    up = next(c for c in report.checks if c.name == "upstream LLM")
+    assert up.ok is True and "reachable" in up.detail
+
+    monkeypatch.setattr(doc, "_tcp_reachable", lambda url, timeout=3.0: False)
+    report = doc.run_doctor(check_upstream=True, upstream_url="http://up:11434/v1")
+    up = next(c for c in report.checks if c.name == "upstream LLM")
+    assert up.ok is False

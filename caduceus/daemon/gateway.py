@@ -112,16 +112,29 @@ class GatewayService:
         finally:
             self.lock.release()
 
-    def stop(self) -> None:
-        """Signal a running daemon to stop (graceful)."""
+    def stop(self, wait: bool = True, timeout: float = 10.0) -> bool:
+        """Signal a running daemon to stop (graceful SIGTERM) and, by default,
+        wait for it to actually exit — so `gateway stop && gateway start` can't
+        race the single-instance lock (U10/R16). Returns True when the daemon is
+        gone (or was not running), False when it is still alive after `timeout`."""
+        import time
+
         pid = self.lock.read_pid()
         if pid is None or not self.lock.is_running():
             log.info("gateway not running")
-            return
+            return True
         try:
             os.kill(pid, 15)  # SIGTERM → graceful handler in the daemon
         except ProcessLookupError:
-            pass
+            return True
+        if not wait:
+            return True
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not self.lock.is_running():
+                return True
+            time.sleep(0.2)
+        return not self.lock.is_running()
 
     def status(self) -> GatewayStatus:
         if not self.lock.is_running():

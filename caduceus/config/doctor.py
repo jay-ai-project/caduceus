@@ -69,15 +69,48 @@ def _docker_runtimes() -> set[str]:
         return set()
 
 
+def _tcp_reachable(url: str, timeout: float = 3.0) -> bool:
+    """Plain TCP dial to the URL's host:port — reachability only, no HTTP."""
+    import socket
+    from urllib.parse import urlparse
+
+    p = urlparse(url)
+    host = p.hostname or ""
+    port = p.port or (443 if p.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def run_doctor(container_runtime: str = "runc", image_tag: str = DEFAULT_TAG,
-               daemon_up: bool | None = None) -> DoctorReport:
+               daemon_up: bool | None = None,
+               upstream_url: "str | None" = None,
+               check_upstream: bool = False) -> DoctorReport:
     checks: list[Check] = []
+
+    # 0. upstream LLM reachability (U10/R17) — the most common "why doesn't chat
+    # work" cause. Only when the caller opts in (the CLI always does).
+    if check_upstream:
+        if not upstream_url:
+            checks.append(Check(
+                "upstream LLM", ok=False, detail="not configured",
+                hint="Set it: `caduceus gateway config --upstream-url <url> --model <model>`."))
+        else:
+            reachable = _tcp_reachable(upstream_url)
+            checks.append(Check(
+                "upstream LLM", ok=reachable,
+                detail=(f"{upstream_url} reachable" if reachable
+                        else f"{upstream_url} NOT reachable"),
+                hint="" if reachable else
+                "Is the LLM server (e.g. Ollama) running? Chat will fail until it is."))
 
     # 1. docker CLI + server
     if shutil.which("docker") is None:
         checks.append(Check("docker", ok=False, detail="docker CLI not on PATH",
                             hint="Install Docker Engine: https://docs.docker.com/engine/install/"))
-        return DoctorReport(checks)  # everything else needs docker
+        return DoctorReport(checks)  # the remaining checks all need docker
     rc, out = _docker("version", "--format", "{{.Server.Version}}")
     server_ok = rc == 0 and out.strip() != ""
     checks.append(Check("docker", ok=server_ok,

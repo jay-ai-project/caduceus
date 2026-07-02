@@ -91,7 +91,7 @@ This installs the `caduceus` command.
 caduceus gateway start
 
 # 2. Create a local containerized agent. Returns immediately and provisions in the
-#    background (builds the hermes image on first use); watch it become
+#    background (pulls the hermes image on first use); watch it become
 #    running/healthy with `caduceus agent ls`. Add --wait to block until ready.
 caduceus agent create my-agent
 
@@ -114,9 +114,9 @@ reconnects to still-running agents (reconciled from `docker`), so they're immedi
 With the daemon running, open **<http://127.0.0.1:9700/>** (redirects to `/ui/`). The UI is a
 single, dependency-free page that lets you:
 
-- **Dashboard** — watch all agents with live lifecycle/health and connection info (auto-refreshing).
-- **Add agent** — create a local agent (with live provisioning progress) or register a remote endpoint.
-- **Chat** — stream responses with collapsible **thinking** blocks and **tool-call** cards; prior turns are best-effort loaded from the agent's session.
+- **Dashboard** — watch all agents with live lifecycle/health (hover a health badge for the cause) and connection info, pushed over a single `/api/events` SSE stream.
+- **Add agent** — create a local agent (with live provisioning progress, optional model/image override) or register a remote endpoint.
+- **Chat** — stream responses with collapsible **thinking** blocks and **tool-call** cards, a **Stop** button to cancel an in-flight turn, and lightweight markdown rendering (code blocks, inline code, bold, links); prior turns are best-effort loaded from the agent's session (local and remote).
 
 It is served **loopback-only with no authentication** — intended as a personal local tool. It is never exposed on the AI-Gateway port.
 
@@ -124,25 +124,34 @@ It is served **loopback-only with no authentication** — intended as a personal
 
 ```text
 caduceus gateway start [-d]          Start the daemon (foreground, or -d to detach)
-caduceus gateway stop                Signal the daemon to stop
-caduceus gateway status [--json]     Show daemon status
+caduceus gateway stop                Stop the daemon (waits for it to exit)
+caduceus gateway restart [-d]        Stop, then start the daemon
+caduceus gateway status [--json]     Show daemon status (live upstream health + uptime)
 caduceus gateway config [--get] [--upstream-url URL] [--model NAME] [--runtime runc|runsc] [--json]
                                      View / change upstream_base_url, default_model, container_runtime
-caduceus doctor [--json]             Check Docker, hermes image, container runtime (gVisor), daemon
+caduceus doctor [--json]             Check upstream LLM reachability, Docker, hermes image,
+                                     container runtime (gVisor), daemon
 
-caduceus agent create <name> [--wait] [--model M] [--upstream-url U] [--image I] [--json]
+caduceus agent create <name> [--wait] [--model M] [--image I] [--json]
                                      Provision a local containerized agent in the background
-                                     (--wait blocks with live progress until ready)
+                                     (--wait blocks with live progress until ready;
+                                      --model sets the agent's model, --image overrides its image)
 caduceus agent register <name> --endpoint <url> [--auth TOKEN]
-                                     Register an existing remote hermes endpoint
-caduceus agent ls [--json]           List agents with lifecycle + health
+                                     Register an existing remote hermes endpoint (--auth = the
+                                     remote's own API-server key, if it already has one)
+caduceus agent ls [--json]           List agents with lifecycle + health (+ health detail in JSON)
 caduceus agent chat <name> [query]   Chat (streaming); omit query for an interactive REPL
 caduceus agent stop|start <name>     Stop / start a local agent
-caduceus agent rm <name> [--force]   Remove an agent (and its container, if local)
+caduceus agent rm <name>             Remove an agent (and its container, if local)
 caduceus agent logs <name> [-f]      Stream a local agent's logs
-caduceus agent config <name> [--get] [--add-skill S] [--remove-skill S]
+caduceus agent config <name> [--get] [--remove-skill S]
         [--enable-tool T] [--disable-tool T] [--soul TEXT | --soul-file PATH]
-        [--set key=value]            View / edit a local agent's skills, tools, persona
+        [--set key=value]            View / edit a local agent's config:
+                                     soul → SOUL.md and skill removal apply on the next turn;
+                                     tool/config changes restart the agent container.
+                                     (Adding skills needs authored content — ask the agent to
+                                      save a skill instead. `model`/`approvals` keys are
+                                      caduceus-managed and cannot be --set.)
 ```
 
 Most commands accept `--json` for scriptable output; exit codes are `0` (ok), `2` (usage), `1` (runtime/upstream error).
@@ -173,6 +182,14 @@ caduceus gateway config --runtime runsc                   # use gVisor for new a
 > to check. If `runsc` is configured but unavailable, `agent create` fails fast (no silent
 > fallback to `runc`).
 
+> **Network exposure**: the AI-Gateway binds `0.0.0.0:9701` by default — agent containers reach
+> it over the Docker bridge, and *remote* agents reach it over your LAN. Every request requires a
+> per-agent bearer token, but the port is visible on your network; caduceus assumes a trusted
+> (home/lab) network. To restrict it to containers only, set `CADUCEUS_AIGATEWAY_BIND` (or
+> `aigateway_bind`) to your Docker bridge IP, e.g. `172.17.0.1:9701` (auto-detected for the
+> advertise address; remote agents then can't use the gateway). The Control API + Web UI stay
+> loopback-only.
+
 When the daemon is **running**, a change is applied **live** (no restart) and saved to
 `config.toml`; when it is stopped, the file is edited directly and takes effect on the next
 `gateway start`. (If `CADUCEUS_UPSTREAM_BASE_URL` / `CADUCEUS_DEFAULT_MODEL` are set in the
@@ -198,10 +215,12 @@ persisted per agent and transparently resumed. Container isolation uses `runc` b
 Local agents run the **official `nousresearch/hermes-agent` image** (pinned to a version tag),
 which ships the full agent toolchain — Python, **Node + Playwright/Chromium**, `ffmpeg`, `git`,
 `ripgrep`, the Docker CLI, `curl`/`wget`, and more — so agents can do web fetch, browser
-automation, and code execution out of the box. Each agent's host workspace is bind-mounted at
-**`/opt/data`** (the image's `HERMES_HOME`), so its config, sessions, and files persist on the
-host under `~/.caduceus/agents/<agent>/workspace`. The official image manages that directory as
-its own internal user, so caduceus resets ownership as needed when re-provisioning an agent.
+automation, and code execution out of the box. Storage is split: the agent's config, memory,
+and sessions live in `HERMES_HOME` (**`/opt/data`**) on the container's anonymous volume — they
+survive stop/start but are wiped on `agent rm`. The agent's **working directory**
+(`/opt/data/workspace`) is bind-mounted to the host at `~/.caduceus/agents/<agent>/workspace`,
+so files the agent produces persist even across remove + re-create. The container runs as your
+host UID/GID, keeping that workspace writable from both sides.
 
 ## Development
 

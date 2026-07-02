@@ -233,8 +233,25 @@ def gateway_start(daemon: bool = typer.Option(False, "-d", "--daemon")):
 
 @gateway_app.command("stop")
 def gateway_stop():
-    get_gateway().stop()
-    render.emit("gateway stop signalled")
+    if get_gateway().stop():
+        render.emit("gateway stopped")
+    else:
+        render.error("gateway did not stop within 10s — check `gateway status` / logs")
+        raise typer.Exit(EXIT_RUNTIME)
+
+
+@gateway_app.command("restart")
+def gateway_restart(daemon: bool = typer.Option(False, "-d", "--daemon")):
+    """Stop the running daemon (waiting for it to exit), then start it again."""
+    gw = get_gateway()
+    if not gw.stop():
+        render.error("gateway did not stop — aborting restart")
+        raise typer.Exit(EXIT_RUNTIME)
+    try:
+        gw.start(daemonize=daemon)
+    except Exception as exc:  # noqa: BLE001 — config/lock errors → clear message
+        render.error(str(exc))
+        raise typer.Exit(EXIT_RUNTIME)
 
 
 @gateway_app.command("status")
@@ -309,16 +326,18 @@ def gateway_config(
 # ================= doctor =================
 @app.command("doctor")
 def doctor(json_out: bool = typer.Option(False, "--json")):
-    """Check environment readiness: Docker, hermes image, container runtime (gVisor),
-    and daemon reachability. Prints gVisor install guidance when runsc is desired but
-    missing; never installs anything. Exit code is non-zero if a required check fails.
+    """Check environment readiness: upstream LLM reachability, Docker, hermes image,
+    container runtime (gVisor), and daemon reachability. Prints gVisor install guidance
+    when runsc is desired but missing; never installs anything. Exit code is non-zero
+    if a required check fails.
     """
     from caduceus.common.settings import Settings
     from caduceus.config import doctor as doc
 
     settings = Settings.from_env_and_file(_config_path())
     daemon_up = get_client().is_daemon_up()
-    report = doc.run_doctor(container_runtime=settings.container_runtime, daemon_up=daemon_up)
+    report = doc.run_doctor(container_runtime=settings.container_runtime, daemon_up=daemon_up,
+                            upstream_url=settings.upstream_base_url, check_upstream=True)
     render.render_doctor(report, json_out)
     if not report.ok:
         raise typer.Exit(EXIT_RUNTIME)
