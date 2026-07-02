@@ -49,6 +49,10 @@ CONTAINER_DATA = "/opt/data"
 CONTAINER_WORKSPACE = "/opt/data/workspace"
 #: In-container config path we `docker cp` the rendered hermes config into.
 HERMES_CONFIG_PATH = f"{CONTAINER_DATA}/config.yaml"
+#: The agent's identity file — read by hermes at every prompt build (U10/R9).
+SOUL_PATH = f"{CONTAINER_DATA}/SOUL.md"
+#: Installed skills: one directory per skill, re-scanned per prompt build (U10/R9).
+SKILLS_DIR = f"{CONTAINER_DATA}/skills"
 #: The API-server port hermes listens on inside the container.
 CONTAINER_API_PORT = 8642
 #: Command passed to the official image's entrypoint to run the API server.
@@ -66,6 +70,11 @@ class Provisioner(Protocol):
     async def status(self, container: str) -> str: ...  # running | stopped | missing
     async def statuses(self) -> dict[str, str]: ...      # live `docker ps -a`, one call
     def logs(self, container: str, follow: bool = False) -> AsyncIterator[str]: ...
+    # ---- agent-config I/O (U10/R9; `docker cp` works on stopped containers too) ----
+    async def read_file(self, container: str, path: str) -> Optional[str]: ...
+    async def write_file(self, container: str, path: str, content: str) -> None: ...
+    async def list_dir(self, container: str, path: str) -> list[str]: ...
+    async def remove_path(self, container: str, path: str) -> None: ...  # running only
 
 
 class RuntimeUnavailable(Exception):
@@ -171,18 +180,70 @@ class DockerProvisioner:
         so the config lands in the container's anon volume (wiped on delete, kept on restart)
         and never touches the host filesystem as a secret file. The stage2 init chowns it to
         the hermes user and chmods 640 on start, so an inbound root:root 600 file is fine."""
-        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False,
+        await self.write_file(container, HERMES_CONFIG_PATH, content)
+
+    # ---- agent-config I/O (U10/R9) -----------------------------------
+    async def write_file(self, container: str, path: str, content: str) -> None:
+        """`docker cp` a file into the container (works created/stopped/running).
+        The temp file never carries more than one config's content and is 600."""
+        with tempfile.NamedTemporaryFile("w", suffix=".tmp", delete=False,
                                          encoding="utf-8") as fh:
             fh.write(content)
             tmp = fh.name
         try:
             os.chmod(tmp, 0o600)
-            await self._check("cp", tmp, f"{container}:{HERMES_CONFIG_PATH}", timeout=30.0)
+            await self._check("cp", tmp, f"{container}:{path}", timeout=30.0)
         finally:
             try:
                 os.unlink(tmp)
             except OSError:
                 pass
+
+    async def read_file(self, container: str, path: str) -> Optional[str]:
+        """Read one in-container file via `docker cp <c>:<path> -` (a tar stream on
+        stdout). None when the file does not exist / cp fails."""
+        rc, out, _err = await self._run("cp", f"{container}:{path}", "-", timeout=30.0)
+        if rc != 0:
+            return None
+        import io
+        import tarfile
+
+        try:
+            with tarfile.open(fileobj=io.BytesIO(out)) as tf:
+                for member in tf.getmembers():
+                    if member.isfile():
+                        f = tf.extractfile(member)
+                        if f is not None:
+                            return f.read().decode("utf-8", "replace")
+        except tarfile.TarError:
+            return None
+        return None
+
+    async def list_dir(self, container: str, path: str) -> list[str]:
+        """Names of the direct children of an in-container directory (via the same
+        `docker cp` tar stream). Missing directory → []."""
+        rc, out, _err = await self._run("cp", f"{container}:{path}", "-", timeout=30.0)
+        if rc != 0:
+            return []
+        import io
+        import tarfile
+
+        names: set[str] = set()
+        try:
+            with tarfile.open(fileobj=io.BytesIO(out)) as tf:
+                for member in tf.getmembers():
+                    parts = member.name.split("/")
+                    # member names look like "skills/<child>[/...]" — take the child.
+                    if len(parts) >= 2 and parts[1]:
+                        names.add(parts[1])
+        except tarfile.TarError:
+            return []
+        return sorted(names)
+
+    async def remove_path(self, container: str, path: str) -> None:
+        """Delete a path inside a RUNNING container (`docker exec rm -rf`); no shell,
+        argv only. Used for skill removal (U10/R9)."""
+        await self._check("exec", container, "rm", "-rf", "--", path, timeout=30.0)
 
     async def stop(self, container: str) -> None:
         await self._check("stop", container, timeout=60.0)

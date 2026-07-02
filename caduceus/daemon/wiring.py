@@ -212,12 +212,16 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
         on_change=event_bus.notify,  # broadcast freshly-probed health after each sweep
     )
 
-    # U4 config editing (sandbox I/O via provisioner; real codec → Build & Test)
+    # U10/R9: real agent-config editing over the container's HERMES_HOME
+    # (config.yaml / SOUL.md / skills dir via docker cp; see config/agent_config.py).
+    from caduceus.config import agent_config
+
     config_editor = ConfigEditor(
         read_config=_make_read_config(provisioner),
         write_config=_make_write_config(provisioner),
-        reload_agent=_make_reload(provisioner, _restart),
+        reload_agent=_make_reload(provisioner, registry, chat_service.close_agent),
         health_check=health_checker.check,
+        validate_change=agent_config.validate_change,
     )
     config_service = ConfigService(registry, config_editor)
 
@@ -243,29 +247,60 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
     )
 
 
-# ---- config sandbox I/O (real hermes paths/reload → Build & Test) ----
+# ---- agent-config I/O over the container's HERMES_HOME (U10/R9) ----
 def _make_read_config(provisioner):
+    from caduceus.agents.provisioner import HERMES_CONFIG_PATH, SKILLS_DIR, SOUL_PATH
+    from caduceus.config.agent_config import snapshot_of
+
     async def _read(rec: AgentRecord) -> ConfigSnapshot:
-        # Build & Test: read skills/tools/soul/core from the sandbox hermes config.
-        # Placeholder structure kept minimal until the on-disk format is confirmed.
-        return ConfigSnapshot()
+        cn = rec.container_name
+        config_text = await provisioner.read_file(cn, HERMES_CONFIG_PATH)
+        soul_text = await provisioner.read_file(cn, SOUL_PATH)
+        skills = await provisioner.list_dir(cn, SKILLS_DIR)
+        return snapshot_of(config_text, soul_text, skills)
     return _read
 
 
 def _make_write_config(provisioner):
-    async def _write(rec: AgentRecord, snapshot: ConfigSnapshot) -> None:
-        # Build & Test: serialize snapshot into the sandbox hermes config files.
-        return None
+    from caduceus.agents.provisioner import HERMES_CONFIG_PATH, SKILLS_DIR, SOUL_PATH
+    from caduceus.config.agent_config import merge_snapshot
+
+    async def _write(rec: AgentRecord, current: ConfigSnapshot, updated: ConfigSnapshot) -> None:
+        cn = rec.container_name
+        if (updated.tools_enabled != current.tools_enabled
+                or updated.core != current.core):
+            config_text = await provisioner.read_file(cn, HERMES_CONFIG_PATH)
+            await provisioner.write_file(cn, HERMES_CONFIG_PATH,
+                                         merge_snapshot(config_text, updated))
+        if updated.soul != current.soul:
+            await provisioner.write_file(cn, SOUL_PATH, updated.soul)
+        for name in set(current.skills) - set(updated.skills):
+            await provisioner.remove_path(cn, f"{SKILLS_DIR}/{name}")
     return _write
 
 
-def _make_reload(provisioner, restart):
+def _make_reload(provisioner, registry, close_transport):
     async def _reload(rec: AgentRecord, strategy: ReloadStrategy) -> None:
-        # Q2: hot_reload (default) signals hermes to reload; restart_serve reuses restart.
-        if strategy == ReloadStrategy.restart_serve:
-            await restart(rec)
-        # else hot_reload: Build & Test confirms the reload signal mechanism.
-        return None
+        # hot_reload = no-op: hermes re-reads SOUL.md and re-scans skills/ at every
+        # prompt build (U10 Spike Notes) — the change lands on the next turn.
+        if strategy != ReloadStrategy.restart_serve:
+            return
+        # restart_serve: toolsets/config keys load at process start → restart the
+        # container. Docker reassigns the published host port → refresh endpoint and
+        # drop the pooled chat transport (it points at the old port).
+        await provisioner.stop(rec.container_name)
+        await provisioner.start(rec.container_name)
+        hp = await provisioner.host_port(rec.container_name)
+        if hp:
+            rec.host_port = hp
+            rec.endpoint = f"http://127.0.0.1:{hp}"
+        rec.lifecycle = Lifecycle.running
+        rec.updated_at = _now()
+        await registry.upsert(rec)
+        try:
+            await close_transport(rec.name)
+        except Exception as exc:  # noqa: BLE001 — best-effort pool eviction
+            log.debug("config reload: transport close for %s failed: %s", rec.name, exc)
     return _reload
 
 

@@ -186,12 +186,14 @@ class ReloadStrategy(str, Enum):
     restart_serve = "restart_serve"
 
 
-#: Q2 seam — the single place to later force a kind to restart. v1: all hot_reload.
+#: Q2 seam — per-kind reload strategy, confirmed against hermes 0.17.0 (U10/R9):
+#: SOUL.md and the skills dir are re-read every prompt build → hot (no restart);
+#: platform_toolsets and general config keys load at process start → restart.
 CHANGE_KIND_STRATEGY: dict[ChangeKind, ReloadStrategy] = {
     ChangeKind.skills: ReloadStrategy.hot_reload,
-    ChangeKind.tools: ReloadStrategy.hot_reload,
+    ChangeKind.tools: ReloadStrategy.restart_serve,
     ChangeKind.soul: ReloadStrategy.hot_reload,
-    ChangeKind.core: ReloadStrategy.hot_reload,
+    ChangeKind.core: ReloadStrategy.restart_serve,
 }
 
 

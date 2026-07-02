@@ -26,9 +26,12 @@ from caduceus.common.models import AgentRecord, HealthLevel, HealthStatus
 log = get_logger("caduceus.config")
 
 ReadConfig = Callable[[AgentRecord], Awaitable[ConfigSnapshot]]
-WriteConfig = Callable[[AgentRecord, ConfigSnapshot], Awaitable[None]]
+#: (rec, current, updated) — current is passed so the writer can diff (skill removal).
+WriteConfig = Callable[[AgentRecord, ConfigSnapshot, ConfigSnapshot], Awaitable[None]]
 ReloadAgent = Callable[[AgentRecord, ReloadStrategy], Awaitable[None]]
 HealthCheck = Callable[[AgentRecord, bool], Awaitable[HealthStatus]]
+#: optional backend-specific change validation → error detail, or None when OK.
+ValidateChange = Callable[[ConfigChange], "str | None"]
 
 
 class ReadOnlyError(Exception):
@@ -42,11 +45,13 @@ class ConfigEditor:
         write_config: WriteConfig,
         reload_agent: ReloadAgent,
         health_check: Optional[HealthCheck] = None,
+        validate_change: Optional[ValidateChange] = None,
     ):
         self._read = read_config
         self._write = write_config
         self._reload = reload_agent
         self._health = health_check
+        self._validate = validate_change
 
     async def read(self, rec: AgentRecord) -> ConfigSnapshot:
         return await self._read(rec)
@@ -58,10 +63,14 @@ class ConfigEditor:
                                 verified=False)
         if change.is_empty():
             return ConfigResult(detail="no changes requested", verified=True, reloaded=False)
+        if self._validate is not None:
+            detail = self._validate(change)
+            if detail:
+                return ConfigResult(detail=detail, verified=False)
 
         current = await self._read(rec)
         updated = apply_change(current, change)
-        await self._write(rec, updated)
+        await self._write(rec, current, updated)
 
         strategy = resolve_strategy(change.affected_kinds())
         await self._reload(rec, strategy)

@@ -91,6 +91,31 @@ class FakeProvisioner:
     async def logs(self, container: str, follow: bool = False) -> AsyncIterator[str]:
         yield "fake log"
 
+    # ---- agent-config I/O (U10/R9): in-memory files keyed (container, path) ----
+    async def read_file(self, container: str, path: str) -> Optional[str]:
+        self.calls.append("read_file")
+        if path.endswith("config.yaml"):
+            return self.configs.get(container)
+        return getattr(self, "files", {}).get((container, path))
+
+    async def write_file(self, container: str, path: str, content: str) -> None:
+        self._maybe_fail("write_file")
+        if path.endswith("config.yaml"):
+            self.configs[container] = content
+            return
+        if not hasattr(self, "files"):
+            self.files = {}
+        self.files[(container, path)] = content
+
+    async def list_dir(self, container: str, path: str) -> list[str]:
+        self.calls.append("list_dir")
+        return sorted(getattr(self, "skill_dirs", {}).get(container, []))
+
+    async def remove_path(self, container: str, path: str) -> None:
+        self._maybe_fail("remove_path")
+        name = path.rsplit("/", 1)[-1]
+        getattr(self, "skill_dirs", {}).get(container, set()).discard(name)
+
 
 class FakeImageBuilder:
     def __init__(self) -> None:

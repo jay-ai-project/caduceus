@@ -68,8 +68,12 @@ def test_apply_change_disable_wins_on_conflict():
     assert "t" in out.tools_disabled and "t" not in out.tools_enabled
 
 
-def test_resolve_strategy_defaults_hot_reload():
-    assert resolve_strategy({ChangeKind.skills, ChangeKind.core}) == ReloadStrategy.hot_reload
+def test_resolve_strategy_per_kind():
+    # U10/R9 strategy map: skills/soul are hot (re-read per prompt build);
+    # tools/core need a process restart. Strongest strategy wins.
+    assert resolve_strategy({ChangeKind.skills, ChangeKind.soul}) == ReloadStrategy.hot_reload
+    assert resolve_strategy({ChangeKind.skills, ChangeKind.core}) == ReloadStrategy.restart_serve
+    assert resolve_strategy({ChangeKind.tools}) == ReloadStrategy.restart_serve
 
 
 def test_resolve_strategy_seam_restart(monkeypatch):

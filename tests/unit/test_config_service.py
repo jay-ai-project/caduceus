@@ -23,9 +23,9 @@ class FakeSandboxConfig:
     async def read(self, rec):
         return self.snap
 
-    async def write(self, rec, snapshot):
+    async def write(self, rec, current, updated):
         # honor verify flag: if False, simulate a write that doesn't take
-        self.snap = snapshot if self.verify else self.snap
+        self.snap = updated if self.verify else self.snap
 
     async def reload(self, rec, strategy):
         self.reloads.append(strategy)
@@ -47,8 +47,9 @@ async def test_apply_happy_path_verified():
     result = await svc.set_config("a1", ConfigChange(add_skills=["b"], enable_tools=["t"]))
     assert result.verified is True
     assert result.reloaded is True
-    assert result.strategy == ReloadStrategy.hot_reload.value
-    assert fsc.reloads == [ReloadStrategy.hot_reload]
+    # tools changes need a process restart (U10/R9 strategy map)
+    assert result.strategy == ReloadStrategy.restart_serve.value
+    assert fsc.reloads == [ReloadStrategy.restart_serve]
     assert "b" in fsc.snap.skills
 
 
