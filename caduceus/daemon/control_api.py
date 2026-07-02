@@ -183,6 +183,15 @@ def build_control_app(services, status_provider=None) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    @app.post("/agents/{name}/chat/cancel")
+    async def chat_cancel(name: str):
+        # U10/R10: cooperative cancel of the in-flight turn (Web UI Stop button).
+        # The streaming /chat response ends with done{cancelled}; nothing to stop
+        # → {"cancelled": false} (idempotent, still 200).
+        if registry.get(name) is None:
+            return _err(ProxyError(404, "invalid_request_error", f"no such agent '{name}'"))
+        return {"cancelled": chat.cancel(name)}
+
     @app.get("/agents/{name}/history")
     async def history(name: str):
         # Best-effort prior-turn replay for the Web UI (FR-W10). Unknown agent →

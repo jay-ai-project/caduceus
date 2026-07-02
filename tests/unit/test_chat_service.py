@@ -184,7 +184,7 @@ async def test_cooperative_cancel_preserves_session():
     assert reg.sessions_set == []  # session preserved (s1 unchanged)
 
 
-# ---- U5: history (FR-W10, best-effort, local-only) ----------------
+# ---- U5: history (FR-W10, best-effort; remote allowed since U10/R15) ----
 async def test_history_local_returns_turns():
     rec = make_agent(session_id="s1")
     turns = [HistoryTurn("user", "hi"), HistoryTurn("assistant", "yo")]
@@ -192,11 +192,13 @@ async def test_history_local_returns_turns():
     assert await cs.history("a1") == turns
 
 
-async def test_history_remote_is_empty():
+async def test_history_remote_with_session_replays():
+    # U10/R15: one HTTP/SSE transport since U8 → remote history replays too.
     rec = make_agent(kind=AgentKind.remote, session_id="s1")
+    turns = [HistoryTurn("user", "x")]
     cs = ChatService(FakeRegistry([rec]),
-                     transport_factory=lambda r: FakeTransport(r, history_turns=[HistoryTurn("user", "x")]))
-    assert await cs.history("a1") == []
+                     transport_factory=lambda r: FakeTransport(r, history_turns=turns))
+    assert await cs.history("a1") == turns
 
 
 async def test_history_sessionless_is_empty():

@@ -55,6 +55,9 @@ class AgentView:
     kind: str
     lifecycle: str
     health: str
+    #: human cause for a non-healthy state (last_health.detail; U10/R18c) — shown
+    #: as a tooltip in the Web UI and included in `agent ls --json`.
+    health_detail: str = ""
     endpoint: Optional[str] = None
     model_alias: str = "default"
     has_session: bool = False
@@ -63,7 +66,8 @@ class AgentView:
     def to_dict(self) -> dict:
         return {
             "name": self.name, "kind": self.kind, "lifecycle": self.lifecycle,
-            "health": self.health, "endpoint": self.endpoint,
+            "health": self.health, "health_detail": self.health_detail,
+            "endpoint": self.endpoint,
             "model_alias": self.model_alias, "has_session": self.has_session,
             "created_at": self.created_at,
         }
@@ -72,16 +76,19 @@ class AgentView:
     def from_dict(cls, d: dict) -> "AgentView":
         return cls(
             name=d["name"], kind=d["kind"], lifecycle=d["lifecycle"], health=d["health"],
+            health_detail=d.get("health_detail", ""),
             endpoint=d.get("endpoint"), model_alias=d.get("model_alias", "default"),
             has_session=d.get("has_session", False), created_at=d.get("created_at"),
         )
 
     @classmethod
     def from_record(cls, rec: AgentRecord, health: Optional[HealthStatus] = None) -> "AgentView":
-        level = (health.level if health else (rec.last_health.level if rec.last_health else HealthLevel.unknown))
+        hs = health or rec.last_health
         return cls(
             name=rec.name, kind=rec.kind.value, lifecycle=rec.lifecycle.value,
-            health=level.value, endpoint=rec.endpoint, model_alias=rec.model_alias,
+            health=(hs.level if hs else HealthLevel.unknown).value,
+            health_detail=(hs.detail if hs else ""),
+            endpoint=rec.endpoint, model_alias=rec.model_alias,
             has_session=rec.session_id is not None, created_at=rec.created_at,
         )
 

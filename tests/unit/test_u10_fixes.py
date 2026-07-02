@@ -210,3 +210,62 @@ def test_registry_load_tolerates_corrupt_state(tmp_path):
     backups = list(tmp_path.glob("state.json.corrupt-*"))
     assert len(backups) == 1
     assert backups[0].read_text(encoding="utf-8").startswith("{not json")
+
+
+# ---- R10: cooperative cancel is wired end-to-end --------------------
+async def test_chat_service_cancel_mid_stream_yields_cancelled():
+    from caduceus.transport.chat import ChatService
+    from caduceus.transport.events import ChatEvent, ChatEventType
+    from tests.fakes import FakeRegistry, FakeTransport, make_agent
+
+    rec = make_agent()
+    script = [ChatEvent.token_(str(i)) for i in range(5)] + [ChatEvent.done_()]
+    cs = ChatService(FakeRegistry([rec]),
+                     transport_factory=lambda r: FakeTransport(r, script=script))
+
+    agen = cs.chat_stream("a1", "hi")
+    first = await agen.__anext__()               # a turn is now in flight
+    assert first.type == ChatEventType.token
+    assert cs.cancel("a1") is True               # streaming → cancellable
+    rest = [ev async for ev in agen]
+    assert rest[-1].type == ChatEventType.done
+    assert rest[-1].code == "cancelled"
+
+
+async def test_chat_service_cancel_idle_returns_false():
+    from caduceus.transport.chat import ChatService
+    from tests.fakes import FakeRegistry, make_agent
+
+    cs = ChatService(FakeRegistry([make_agent()]))
+    assert cs.cancel("a1") is False              # no pooled transport / no turn
+    assert cs.cancel("ghost") is False
+
+
+async def test_chat_cancel_route():
+    import httpx
+
+    from caduceus.daemon.control_api import build_control_app
+    from tests.fakes import build_fake_services, make_agent
+
+    services = build_fake_services(agents=[make_agent(name="a1")])
+    app = build_control_app(services)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+        ok = await c.post("/agents/a1/chat/cancel")
+        assert ok.status_code == 200
+        assert ok.json() == {"cancelled": False}         # fake: nothing in flight
+        assert services.chat_service.cancelled == ["a1"]
+        missing = await c.post("/agents/ghost/chat/cancel")
+        assert missing.status_code == 404
+
+
+# ---- R18c: health detail is projected (secret-free) -----------------
+def test_agent_view_carries_health_detail():
+    from caduceus.common.models import HealthLevel, HealthStatus
+    from tests.fakes import make_agent
+
+    rec = make_agent()
+    rec.last_health = HealthStatus(HealthLevel.unhealthy, detail="agent api unreachable")
+    view = AgentView.from_record(rec)
+    assert view.health_detail == "agent api unreachable"
+    assert AgentView.from_dict(view.to_dict()) == view

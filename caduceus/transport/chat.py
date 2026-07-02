@@ -93,16 +93,17 @@ class ChatService:
                 await self._evict(name)
                 log.info("warm-up for %s failed: %s", name, exc)
 
-    # ---- history replay (FR-W10; best-effort, local only) ------------
+    # ---- history replay (FR-W10; best-effort) -------------------------
     async def history(self, name: str) -> list[HistoryTurn]:
         """Prior turns for an agent's persisted session, best-effort.
 
-        Remote agents, sessionless agents, or any failure → `[]` (BR-W8/W9). Uses a
-        dedicated short-lived transport (its own HTTP client) so the pooled live-chat
-        transport is never disturbed (BR-W10). Replays `GET /api/sessions/{id}/messages`.
+        Sessionless agents or any failure → `[]` (BR-W8/W9). Works for local AND
+        remote agents — one HTTP/SSE transport since U8, so the old local-only guard
+        was an ACP-era leftover (U10/R15). Uses a dedicated short-lived transport so
+        the pooled live-chat transport is never disturbed (BR-W10).
         """
         rec = self.registry.get(name)
-        if rec is None or rec.kind != AgentKind.local or not rec.session_id:
+        if rec is None or not rec.session_id:
             return []
         transport = self._factory(rec)
         try:
@@ -143,6 +144,20 @@ class ChatService:
                 await self._persist_session(rec, entry.transport)
             if broke:
                 await self._evict(rec.name)  # respawn on next turn
+
+    # ---- cooperative cancel (U10/R10; Q6/BR-C10) ----------------------
+    def cancel(self, name: str) -> bool:
+        """Request cancellation of the in-flight turn on an agent's pooled transport.
+
+        Returns True when a turn was actually streaming (the transport ends it with
+        `done{cancelled}` and best-effort stops the run server-side); False when
+        nothing was in flight. Sync and non-blocking.
+        """
+        entry = self._pool.get(name)
+        if entry is None or not entry.lock.locked():
+            return False  # no pooled transport / no turn in progress
+        entry.transport.request_cancel()
+        return True
 
     # ---- pool lifecycle ----------------------------------------------
     async def _evict(self, name: str) -> None:

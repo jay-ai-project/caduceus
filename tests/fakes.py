@@ -380,10 +380,15 @@ class FakeChatService:
     def __init__(self, script=None, history=None):
         self.script = script if script is not None else [ChatEvent.token_("hi"), ChatEvent.done_()]
         self._history = history or []
+        self.cancelled: list[str] = []
 
     async def chat_stream(self, name, message):
         for ev in self.script:
             yield ev
+
+    def cancel(self, name):
+        self.cancelled.append(name)
+        return False  # nothing in flight in the fake
 
     async def history(self, name):
         return list(self._history)

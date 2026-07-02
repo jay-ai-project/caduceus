@@ -60,3 +60,13 @@ async def test_add_agent_modal_opens_and_tabs_toggle(webui_server: str, page: Pa
     # Close returns to the hidden state.
     await page.get_by_test_id("modal-close").click()
     await expect(modal).to_be_hidden()
+
+async def test_chat_view_has_stop_button_disabled_when_idle(webui_server: str, page: Page):
+    # U10/R18a: the composer ships a Stop button that is only live while streaming.
+    await page.goto(webui_server + "/ui/")
+    await page.get_by_test_id("agent-list").get_by_text("demo-agent").first.click()
+    await expect(page.get_by_test_id("chat-view")).to_be_visible()
+    stop = page.get_by_test_id("composer-stop")
+    await expect(stop).to_be_visible()
+    await expect(stop).to_be_disabled()
+    await expect(page.get_by_test_id("composer-send")).to_be_enabled()

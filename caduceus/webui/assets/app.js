@@ -103,13 +103,15 @@ function renderAgents() {
       class: "agent-card" + (a.name === state.selected ? " selected" : ""),
       "data-testid": `agent-card-${a.name}`,
     });
+    const healthBadge = badge(a.health);
+    if (a.health_detail) healthBadge.title = a.health_detail;  // cause on hover (R18c)
     card.append(
       el("div", { class: "row1" },
         el("span", { class: "name", text: a.name }),
         el("span", { class: "badge kind", text: a.kind }),
       ),
       el("div", { class: "row1", style: "margin-top:6px;gap:6px;justify-content:flex-start" },
-        badge(a.lifecycle), badge(a.health),
+        badge(a.lifecycle), healthBadge,
       ),
       el("div", { class: "meta", text: `${a.endpoint || "—"} · model ${a.model_alias}${a.has_session ? " · session" : ""}` }),
     );
@@ -233,10 +235,42 @@ async function openChat(name) {
 
 function addBubble(role, text) {
   const b = el("div", { class: `bubble ${role}` });
-  b.append(el("span", { class: "answer", text: text || "" }));
+  const answer = el("span", { class: "answer" });
+  if (role === "assistant") answer.innerHTML = renderMarkdown(text || "");
+  else answer.textContent = text || "";
+  b.append(answer);
   $("#transcript").append(b);
   scrollTranscript();
   return b;
+}
+
+// ---------- minimal, XSS-safe markdown (R18b) ----------
+// Everything is HTML-escaped FIRST; only a small whitelist of structures is then
+// re-introduced: ``` code fences, `inline code`, **bold**, [text](https://url).
+function escapeHTML(s) {
+  return s.replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderMarkdown(text) {
+  const out = [];
+  const parts = String(text).split("```");
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) { // inside a fence; drop a leading language tag line
+      let code = parts[i];
+      const nl = code.indexOf("\n");
+      if (nl >= 0 && /^[\w+-]*\s*$/.test(code.slice(0, nl))) code = code.slice(nl + 1);
+      out.push(`<pre><code>${escapeHTML(code.replace(/\n$/, ""))}</code></pre>`);
+    } else {
+      let t = escapeHTML(parts[i]);
+      t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+      t = t.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+      t = t.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      out.push(t);
+    }
+  }
+  return out.join("");
 }
 
 function scrollTranscript() { const tr = $("#transcript"); tr.scrollTop = tr.scrollHeight; }
@@ -301,10 +335,23 @@ async function sendMessage(text) {
     bubble._answer.textContent += `\n[stream error: ${e.message}]`;
   } finally {
     if (bubble._thinking) bubble._thinking.open = false;
+    // Streaming appends plain text; render the finished answer once (R18b).
+    if (!bubble.classList.contains("error")) {
+      bubble._answer.innerHTML = renderMarkdown(bubble._answer.textContent);
+    }
     state.streaming = false;
     setComposerEnabled(true);
     $("#composer-input").focus();
   }
+}
+
+async function cancelChat() {
+  // Stop button (R10/R18a): cooperative cancel — the open /chat stream then ends
+  // with done{cancelled}, which unwinds sendMessage normally.
+  const name = state.selected;
+  if (!name || !state.streaming) return;
+  try { await fetchJSON(`/agents/${encodeURIComponent(name)}/chat/cancel`, { method: "POST" }); }
+  catch (_) {}
 }
 
 function dispatchChatEvent(bubble, ev) {
@@ -334,6 +381,7 @@ function dispatchChatEvent(bubble, ev) {
 function setComposerEnabled(on) {
   $("#composer-input").disabled = !on;
   $("#composer-send").disabled = !on;
+  $("#composer-stop").disabled = on;  // Stop is only live while streaming
 }
 
 // ================= wiring =================
@@ -346,6 +394,7 @@ function init() {
   $("#form-remote").onsubmit = submitRemote;
 
   const input = $("#composer-input");
+  $("#composer-stop").onclick = cancelChat;
   $("#composer").onsubmit = (e) => { e.preventDefault(); const v = input.value; input.value = ""; sendMessage(v); };
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#composer").requestSubmit(); }
