@@ -154,6 +154,19 @@ class Supervisor:
         if state.next_attempt_at is not None and now < state.next_attempt_at:
             return  # back-off gate (BR-S4)
 
+        # The restart budget is spent and the agent is STILL unhealthy at the point a
+        # further restart would be needed → open the circuit (BR-S5). Judged here — not
+        # right after a restart — so a final restart that actually recovers the agent is
+        # observed as healthy on the next sweep and resets state instead of failing it.
+        if state.restart_attempts >= self.restart_threshold:
+            state.circuit = CircuitState.open
+            try:
+                await self._mark_failed(rec.name)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("supervisor: mark_failed(%s) error: %s", rec.name, exc)
+            log.warning("supervisor: circuit OPEN for %s after %d restart attempts", rec.name, state.restart_attempts)
+            return
+
         try:
             await self._restart(rec)
             log.info("supervisor: restarted agent %s (attempt %d)", rec.name, state.restart_attempts + 1)
@@ -164,14 +177,6 @@ class Supervisor:
         delay = self.backoff[min(state.backoff_index, len(self.backoff) - 1)]
         state.backoff_index += 1
         state.next_attempt_at = now + delay
-
-        if state.restart_attempts >= self.restart_threshold:
-            state.circuit = CircuitState.open
-            try:
-                await self._mark_failed(rec.name)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("supervisor: mark_failed(%s) error: %s", rec.name, exc)
-            log.warning("supervisor: circuit OPEN for %s after %d restart attempts", rec.name, state.restart_attempts)
 
     async def _notify(self) -> None:
         # Fired after each sweep; a broadcast failure must never break the loop.

@@ -73,10 +73,16 @@ class AgentService:
         self._jobs: dict[str, ProvisioningJob] = {}
 
     # ---- create (local, saga) ---------------------------------------
-    async def create(self, name: str, wait: bool = True, progress=None) -> AgentRecord:
+    async def create(self, name: str, wait: bool = True, progress=None, *,
+                     model: "str | None" = None, image: "str | None" = None) -> AgentRecord:
         """Provision a local agent (FR-U7-2). `wait=False` runs the saga in the
         background: the `creating` record is returned immediately and `agent ls`
-        reflects the live `creating → running → healthy | failed` progression."""
+        reflects the live `creating → running → healthy | failed` progression.
+
+        `model` overrides the agent's model alias (rendered into its hermes config;
+        non-sentinel models pass through the AI-Gateway to the upstream unchanged).
+        `image` overrides the agent image tag for this create only.
+        """
         _emit = make_emit(progress)
 
         name = validate_name(name)
@@ -89,18 +95,19 @@ class AgentService:
         rec = AgentRecord(
             name=name, kind=AgentKind.local, token=token,
             container_name=cn, workspace_path=self.provisioner.workspace_for(cn),
-            runtime=self._runtime_provider(), model_alias=self.model_alias,
+            runtime=self._runtime_provider(),
+            model_alias=(model or self.model_alias),
             lifecycle=Lifecycle.creating, created_at=now, updated_at=now,
         )
         await self.registry.upsert(rec)
 
         if wait:
-            await self._provision(rec, token, _emit, background=False)
+            await self._provision(rec, token, _emit, background=False, image=image)
             return rec
 
         async def _job() -> None:
             try:
-                await self._provision(rec, token, _emit, background=True)
+                await self._provision(rec, token, _emit, background=True, image=image)
             finally:
                 self._jobs.pop(name, None)
 
@@ -108,14 +115,15 @@ class AgentService:
         self._jobs[name] = ProvisioningJob(name=name, task=task, started_at=now)
         return rec
 
-    async def _provision(self, rec: AgentRecord, token: str, emit, background: bool) -> None:
+    async def _provision(self, rec: AgentRecord, token: str, emit, background: bool,
+                         image: "str | None" = None) -> None:
         """The provisioning saga (BR-P5/P6). On failure: compensate, then either
         persist `failed` (background) or unregister + raise (wait)."""
         cn = rec.container_name
         created = False
         try:
             await emit("preparing image")
-            tag = await self.images.ensure_image(self.image_tag, progress=emit)
+            tag = await self.images.ensure_image(image or self.image_tag, progress=emit)
             await emit("creating container")
             env = {**api_server_env(token), "OPENAI_API_KEY": token}
             await self.provisioner.create(cn, tag, env, rec.runtime)
@@ -124,7 +132,7 @@ class AgentService:
             # the API server boots with it present.
             await emit("configuring agent")
             await self.provisioner.write_config(
-                cn, render_hermes_config(self.aigateway_url, self.model_alias, api_key=token,
+                cn, render_hermes_config(self.aigateway_url, rec.model_alias, api_key=token,
                                          workspace=CONTAINER_WORKSPACE))
             # Docker assigns the published ephemeral host port at START, not create — so
             # start first, then read it back (Build & Test, U8-D3).
@@ -212,11 +220,13 @@ class AgentService:
         now = _now()
         rec = AgentRecord(
             name=name, kind=AgentKind.remote, token=token, endpoint=endpoint.strip(),
+            serve_auth=(auth.strip() if auth and auth.strip() else None),
             model_alias=self.model_alias, lifecycle=Lifecycle.registered,
             created_at=now, updated_at=now,
         )
         await self.registry.upsert(rec)
-        return rec, remote_setup_guidance(self.aigateway_url, token, self.model_alias)
+        return rec, remote_setup_guidance(self.aigateway_url, token, self.model_alias,
+                                          own_auth=rec.serve_auth is not None)
 
     # ---- list (real-time, parallel, no cache — NFR-U8-P1) -----------
     async def list(self, deep: bool = False, probe: bool = True) -> list[AgentRecord]:
@@ -262,14 +272,32 @@ class AgentService:
 
     async def reconcile_all(self) -> None:
         """Boot-time reconcile/reconnect (BR-O2): set each local agent's lifecycle to its
-        live Docker truth and refresh its endpoint. Idempotent + fault-isolated."""
+        live Docker truth and refresh its endpoint. Idempotent + fault-isolated.
+
+        Boot-time ONLY: at this point no provisioning job can be in flight, so a
+        record still in `creating` was orphaned by a daemon crash/restart mid-provision.
+        It is compensated (half-provisioned container removed) and marked `failed` —
+        otherwise it would stay `creating` forever (runtime reconciles skip creating).
+        """
         try:
             statuses = await self.provisioner.statuses()
         except Exception as exc:  # noqa: BLE001 — never block startup
             log.warning("boot reconcile: docker ps failed: %s", exc)
             return
         for rec in self.registry.list():
-            if rec.kind != AgentKind.local or rec.lifecycle == Lifecycle.creating:
+            if rec.kind != AgentKind.local:
+                continue
+            if rec.lifecycle == Lifecycle.creating:
+                if rec.container_name and rec.container_name in statuses:
+                    await self._safe_remove(rec.container_name)
+                rec.lifecycle = Lifecycle.failed
+                rec.last_health = HealthStatus(
+                    HealthLevel.unhealthy, shallow=False,
+                    detail="daemon restarted mid-provision; remove and re-create this agent",
+                    checked_at=_now())
+                rec.updated_at = _now()
+                await self.registry.upsert(rec)
+                log.warning("boot reconcile: orphaned creating agent %s → failed", rec.name)
                 continue
             before = rec.lifecycle
             self._reconcile_lifecycle(rec, statuses)

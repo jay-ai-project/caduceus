@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -71,7 +70,6 @@ class GatewayService:
         self.state_dir = Path(state_dir).expanduser()
         self.settings = settings or Settings.from_env_and_file(self.state_dir / "config.toml")
         self.lock = InstanceLock(self.state_dir / "caduceus.pid")
-        self._started_at: Optional[float] = None
 
     # ---- bootstrap (Q3) ---------------------------------------------
     def bootstrap_config(self, *, interactive: bool, prompt=input) -> Settings:
@@ -105,7 +103,6 @@ class GatewayService:
         try:
             if daemonize:
                 self._daemonize()  # Build & Test
-            self._started_at = time.time()
             services = build_services(self.settings, state_dir=self.state_dir)
             control_app, aigateway_app = build_apps(services)
             # NOTE: the Supervisor schedules an asyncio task, so it must be started

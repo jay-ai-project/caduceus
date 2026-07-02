@@ -13,6 +13,8 @@ import shutil
 import subprocess  # noqa: S404 — invoking the local docker CLI, no shell
 from dataclasses import dataclass, field
 
+from caduceus.agents.images import DEFAULT_TAG
+
 GVISOR_INSTALL_HINT = (
     "gVisor (runsc) is not registered with Docker. To use runtime=runsc:\n"
     "  1. Install gVisor: https://gvisor.dev/docs/user_guide/install/\n"
@@ -67,7 +69,7 @@ def _docker_runtimes() -> set[str]:
         return set()
 
 
-def run_doctor(container_runtime: str = "runc", image_tag: str = "caduceus/hermes:0.17.0",
+def run_doctor(container_runtime: str = "runc", image_tag: str = DEFAULT_TAG,
                daemon_up: bool | None = None) -> DoctorReport:
     checks: list[Check] = []
 
@@ -84,11 +86,11 @@ def run_doctor(container_runtime: str = "runc", image_tag: str = "caduceus/herme
     if not server_ok:
         return DoctorReport(checks)
 
-    # 2. hermes image (non-fatal: built on first `agent create`)
+    # 2. hermes image (non-fatal: pulled on first `agent create`)
     rc, _ = _docker("image", "inspect", image_tag)
     checks.append(Check("hermes image", ok=rc == 0, required=False,
-                        detail=(image_tag if rc == 0 else f"{image_tag} not built yet"),
-                        hint="" if rc == 0 else "Built automatically on first `caduceus agent create`."))
+                        detail=(image_tag if rc == 0 else f"{image_tag} not pulled yet"),
+                        hint="" if rc == 0 else "Pulled automatically on first `caduceus agent create` (~3.8 GB)."))
 
     # 3. container runtime availability (fail-fast intent, BR-R2)
     runtimes = _docker_runtimes()

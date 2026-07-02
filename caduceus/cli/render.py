@@ -56,12 +56,21 @@ def render_status(gs, as_json: bool) -> None:
     if not gs.running:
         emit("caduceus daemon: NOT running. Start it with `caduceus gateway start`.")
         return
-    emit(f"caduceus daemon: running (pid {gs.pid})")
+    emit(f"caduceus daemon: running" + (f" (pid {gs.pid})" if gs.pid else ""))
     emit(f"  control API : {gs.control_listener}")
     emit(f"  AI-Gateway  : {gs.aigateway_listener}")
     emit(f"  upstream    : {gs.upstream}")
     emit(f"  agents      : {gs.agent_count}")
+    if gs.uptime_s is not None:
+        emit(f"  uptime      : {_fmt_uptime(gs.uptime_s)}")
     emit(f"  version     : {gs.version}")
+
+
+def _fmt_uptime(seconds: float) -> str:
+    s = int(seconds)
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}h {m}m {sec}s" if h else (f"{m}m {sec}s" if m else f"{sec}s")
 
 
 def _gateway_env_warnings(view, change=None) -> None:

@@ -19,18 +19,18 @@ from caduceus.common.models import AgentRecord, HealthLevel, HealthStatus
 @dataclass
 class CreateSpec:
     name: str
+    #: model alias for the agent (None → gateway default alias); non-sentinel models
+    #: pass through the AI-Gateway to the upstream unchanged.
     model: Optional[str] = None
-    upstream_url: Optional[str] = None
+    #: agent image tag override for this create (None → pinned default).
     image: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "model": self.model,
-                "upstream_url": self.upstream_url, "image": self.image}
+        return {"name": self.name, "model": self.model, "image": self.image}
 
     @classmethod
     def from_dict(cls, d: dict) -> "CreateSpec":
-        return cls(name=d["name"], model=d.get("model"),
-                   upstream_url=d.get("upstream_url"), image=d.get("image"))
+        return cls(name=d["name"], model=d.get("model"), image=d.get("image"))
 
 
 @dataclass

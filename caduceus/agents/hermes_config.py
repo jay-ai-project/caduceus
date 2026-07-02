@@ -140,13 +140,26 @@ def api_server_env(token: str, port: int = 8642) -> dict[str, str]:
     }
 
 
-def remote_setup_guidance(aigateway_url: str, token: str, model_alias: str = "default") -> str:
+def remote_setup_guidance(aigateway_url: str, token: str, model_alias: str = "default",
+                          own_auth: bool = False) -> str:
     """Instructions returned on `register` so the user can route a remote hermes
-    through caduceus (Q7; caduceus cannot auto-configure remote)."""
+    through caduceus (Q7; caduceus cannot auto-configure remote).
+
+    `own_auth=True` (`register --auth <key>`): caduceus authenticates to the remote
+    with the key the user supplied, so its existing API_SERVER_KEY stays untouched.
+    Otherwise the caduceus-minted token doubles as the remote's API-server key.
+    """
+    step1 = (
+        "  1. Its API server (hermes gateway run) keeps its existing bearer key —\n"
+        "     caduceus talks to it over HTTP/SSE with the --auth key you provided."
+        if own_auth else
+        "  1. Enable its API server (hermes gateway run) with a bearer key and reachable URL;\n"
+        "     caduceus talks to it over HTTP/SSE at that URL with the token below\n"
+        "     (set API_SERVER_KEY to that token)."
+    )
     return (
         "To register this remote hermes with caduceus:\n"
-        "  1. Enable its API server (hermes gateway run) with a bearer key and reachable URL;\n"
-        "     caduceus talks to it over HTTP/SSE at that URL with the token below.\n"
+        f"{step1}\n"
         "  2. Route its LLM provider through the caduceus AI-Gateway:\n"
         f"       base_url = {aigateway_url}\n"
         f"       api_key (OPENAI_API_KEY) = {token}\n"

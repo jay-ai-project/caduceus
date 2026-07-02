@@ -120,6 +120,7 @@ def test_agent_chat_once(monkeypatch):
 
 
 def test_gateway_status_down(monkeypatch):
+    _patch_client(monkeypatch, up=False)  # daemon unreachable → local pid-file view
     _patch_gateway(monkeypatch, GatewayStatus(running=False, version="0.1.0"))
     res = runner.invoke(cli_app.app, ["gateway", "status"])
     assert res.exit_code == 0
@@ -127,10 +128,21 @@ def test_gateway_status_down(monkeypatch):
 
 
 def test_gateway_status_json(monkeypatch):
+    _patch_client(monkeypatch, up=False)
     _patch_gateway(monkeypatch, GatewayStatus(running=True, pid=7, version="0.1.0"))
     res = runner.invoke(cli_app.app, ["gateway", "status", "--json"])
     assert res.exit_code == 0
     assert json.loads(res.stdout)["pid"] == 7
+
+
+def test_gateway_status_prefers_daemon_view(monkeypatch):
+    # Daemon up → the CLI renders the daemon's live /status (upstream + uptime; U10/R1).
+    live = GatewayStatus(running=True, pid=9, upstream="healthy", uptime_s=61.0, version="0.1.0")
+    _patch_client(monkeypatch, up=True, status=live)
+    res = runner.invoke(cli_app.app, ["gateway", "status"])
+    assert res.exit_code == 0
+    assert "upstream    : healthy" in res.stdout
+    assert "uptime" in res.stdout
 
 
 # ================= U8: doctor + gateway config --runtime =================

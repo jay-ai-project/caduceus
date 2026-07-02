@@ -11,6 +11,8 @@ import json
 from collections.abc import Iterator
 from typing import Optional
 
+import httpx
+
 from caduceus.common.dto import (
     AgentView,
     ConfigChange,
@@ -39,10 +41,14 @@ class ControlAPIClient:
 
     def _c(self):
         if self._client is None:
-            import httpx
-
             self._client = httpx.Client(base_url=self.base_url, timeout=self._timeout)
         return self._client
+
+    def _stream_timeout(self) -> "httpx.Timeout":
+        """Timeout for long-lived SSE streams (chat / logs -f): normal connect/write
+        limits, but NO read timeout — an agent turn or a quiet `logs -f` may legally
+        go far longer than the per-call default between chunks (U10/R4)."""
+        return httpx.Timeout(self._timeout, read=None)
 
     def _json(self, resp):
         if resp.status_code >= 400:
@@ -115,22 +121,30 @@ class ControlAPIClient:
         return GatewayConfigView.from_dict(self._json(r))
 
     def chat(self, name: str, message: str) -> Iterator[ChatEvent]:
-        with self._c().stream("POST", f"/agents/{name}/chat", json={"message": message}) as resp:
-            if resp.status_code >= 400:
-                raise ControlError(f"chat failed (HTTP {resp.status_code})")
-            for line in resp.iter_lines():
-                ev = _parse_sse_event(line)
-                if ev is not None:
-                    yield ev
+        try:
+            with self._c().stream("POST", f"/agents/{name}/chat", json={"message": message},
+                                  timeout=self._stream_timeout()) as resp:
+                if resp.status_code >= 400:
+                    raise ControlError(f"chat failed (HTTP {resp.status_code})")
+                for line in resp.iter_lines():
+                    ev = _parse_sse_event(line)
+                    if ev is not None:
+                        yield ev
+        except httpx.HTTPError as exc:
+            raise ControlError(f"chat stream failed: {exc}") from exc
 
     def logs(self, name: str, follow: bool = False) -> Iterator[str]:
-        with self._c().stream("GET", f"/agents/{name}/logs", params={"follow": follow}) as resp:
-            if resp.status_code >= 400:
-                raise ControlError(_err_message(resp))
-            for line in resp.iter_lines():
-                obj = _parse_sse_data(line)
-                if obj is not None and "line" in obj:
-                    yield obj["line"]
+        try:
+            with self._c().stream("GET", f"/agents/{name}/logs", params={"follow": follow},
+                                  timeout=self._stream_timeout()) as resp:
+                if resp.status_code >= 400:
+                    raise ControlError(_err_message(resp))
+                for line in resp.iter_lines():
+                    obj = _parse_sse_data(line)
+                    if obj is not None and "line" in obj:
+                        yield obj["line"]
+        except httpx.HTTPError as exc:
+            raise ControlError(f"log stream failed: {exc}") from exc
 
 
 def _err_message(resp) -> str:

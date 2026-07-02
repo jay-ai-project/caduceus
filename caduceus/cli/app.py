@@ -52,8 +52,11 @@ def _run(fn):
 
 # ================= agent commands =================
 @agent_app.command("create")
-def agent_create(name: str, model: Optional[str] = None,
-                 upstream_url: Optional[str] = None, image: Optional[str] = None,
+def agent_create(name: str,
+                 model: Optional[str] = typer.Option(
+                     None, "--model", help="model alias for this agent (default: gateway default)"),
+                 image: Optional[str] = typer.Option(
+                     None, "--image", help="agent image tag override (default: pinned hermes image)"),
                  wait: bool = typer.Option(False, "--wait/--no-wait",
                                            help="block until the agent is provisioned & ready"),
                  json_out: bool = typer.Option(False, "--json")):
@@ -61,7 +64,7 @@ def agent_create(name: str, model: Optional[str] = None,
 
     def go():
         view = None  # terminal record (wait: done; background: accepted)
-        for ev in client.create_agent(CreateSpec(name, model, upstream_url, image), wait=wait):
+        for ev in client.create_agent(CreateSpec(name, model=model, image=image), wait=wait):
             kind = ev.get("event")
             if kind == "progress":
                 render.progress(ev.get("phase", ""), ev.get("detail", ""))
@@ -236,7 +239,13 @@ def gateway_stop():
 
 @gateway_app.command("status")
 def gateway_status(json_out: bool = typer.Option(False, "--json")):
-    render.render_status(get_gateway().status(), json_out)
+    # Prefer the running daemon's own /status (live upstream health + uptime);
+    # fall back to the local pid-file view when it is down/unreachable.
+    client = get_client()
+    if client.is_daemon_up():
+        _run(lambda: render.render_status(client.status(), json_out))
+    else:
+        render.render_status(get_gateway().status(), json_out)
 
 
 #: Same location the daemon reads/writes (GatewayService default state dir).

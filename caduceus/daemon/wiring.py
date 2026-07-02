@@ -11,6 +11,8 @@ chat, sweep) — construction here is side-effect-free, so wiring is importable/
 from __future__ import annotations
 
 import asyncio
+import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -54,6 +56,8 @@ class Services:
     aigateway_app: "FastAPI"
     event_bus: "EventBus"
     advertise_host: str
+    #: async () -> GatewayStatus with live upstream reachability + uptime (U10/R1).
+    status_snapshot: "Callable[[], Awaitable[GatewayStatus]]"
 
 
 def build_status(settings: Settings, registry: Registry) -> GatewayStatus:
@@ -147,6 +151,26 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
                                  transport_closer=chat_service.close_agent,
                                  warm_hook=chat_service.warm)
 
+    # U10/R1: status enriched with upstream reachability + uptime. The reachability
+    # probe is TTL-cached — the event bus rebuilds the snapshot on every registry
+    # mutation, and that must not dial the upstream each time.
+    started_at = time.monotonic()
+    up_cache = {"at": float("-inf"), "value": HealthLevel.unknown.value}
+
+    async def _upstream_status() -> str:
+        now = time.monotonic()
+        if now - up_cache["at"] > 5.0:
+            ok = await _endpoint_reachable(settings.upstream_base_url)
+            up_cache["value"] = (HealthLevel.healthy if ok else HealthLevel.unhealthy).value
+            up_cache["at"] = now
+        return up_cache["value"]
+
+    async def status_snapshot() -> GatewayStatus:
+        gs = build_status(settings, registry)
+        gs.upstream = await _upstream_status()
+        gs.uptime_s = round(time.monotonic() - started_at, 1)
+        return gs
+
     # U9: event bus powering the Web UI `/api/events` push stream. The snapshot is
     # the exact data the old dashboard polls returned (`/status` + `/agents?probe=false`),
     # so switching the UI from polling to push is behaviour-preserving.
@@ -156,7 +180,7 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
         recs = await agent_service.list(deep=False, probe=False)
         return {
             "type": "snapshot",
-            "status": build_status(settings, registry).to_dict(),
+            "status": (await status_snapshot()).to_dict(),
             "agents": [AgentView.from_record(r, r.last_health).to_dict() for r in recs],
         }
 
@@ -215,7 +239,7 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
         agent_service=agent_service, chat_service=chat_service,
         config_service=config_service, gateway_config_service=gateway_config_service,
         supervisor=supervisor, aigateway_app=aigateway_app, event_bus=event_bus,
-        advertise_host=advertise,
+        advertise_host=advertise, status_snapshot=status_snapshot,
     )
 
 

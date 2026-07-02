@@ -47,13 +47,33 @@ class Registry:
 
     # ---- load / save -------------------------------------------------
     def load(self) -> None:
-        """Load state from disk (call once at startup; synchronous)."""
-        if self._path.exists():
+        """Load state from disk (call once at startup; synchronous).
+
+        A corrupt state file must not brick the daemon (RESILIENCY-12): it is
+        moved aside to `state.json.corrupt-<ts>` and the registry starts empty
+        (running containers are still reconciled/recoverable via `docker ps`).
+        """
+        if not self._path.exists():
+            return
+        try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             self._agents = {
                 name: AgentRecord.from_dict(rec)
                 for name, rec in data.get("agents", {}).items()
             }
+        except Exception as exc:  # noqa: BLE001 — corrupt/invalid state file
+            from datetime import datetime, timezone
+
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup = self._path.with_name(f"{self._path.name}.corrupt-{ts}")
+            try:
+                self._path.replace(backup)
+                where = str(backup)
+            except OSError:
+                where = "(backup failed; file left in place)"
+            log.warning("state file %s is corrupt (%s); starting with an empty registry, "
+                        "backed up to %s", self._path, exc, where)
+            self._agents = {}
 
     def _save_unlocked(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)

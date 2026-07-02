@@ -176,7 +176,6 @@ async function submitLocal(ev) {
   const body = {
     name,
     model: (f.get("model") || "").trim() || null,
-    upstream_url: (f.get("upstream_url") || "").trim() || null,
     image: (f.get("image") || "").trim() || null,
   };
   logLine(`creating '${name}'…`);

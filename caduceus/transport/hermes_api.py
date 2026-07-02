@@ -116,7 +116,10 @@ class HermesApiTransport(Transport):
     # ---- client ------------------------------------------------------
     def _new_client(self) -> httpx.AsyncClient:
         base = (self.rec.endpoint or "").rstrip("/")
-        headers = {"Authorization": f"Bearer {self.rec.token}"} if self.rec.token else {}
+        # A registered remote may keep its own API-server key (`register --auth`);
+        # otherwise the single caduceus-minted token doubles as the bearer (BR-N2).
+        bearer = self.rec.serve_auth or self.rec.token
+        headers = {"Authorization": f"Bearer {bearer}"} if bearer else {}
         timeout = httpx.Timeout(
             connect=self._timeouts.connect, read=self._timeouts.read,
             write=self._timeouts.connect, pool=self._timeouts.connect,

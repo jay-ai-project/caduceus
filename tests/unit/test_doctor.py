@@ -63,3 +63,25 @@ def test_image_not_built_is_nonfatal(monkeypatch):
     assert report.ok  # image check is non-required
     img = next(c for c in report.checks if c.name == "hermes image")
     assert not img.ok and not img.required
+
+
+def test_default_image_tag_is_the_pinned_hermes_image(monkeypatch):
+    # R2: doctor must inspect the image agents actually use (was a stale pre-U8 tag).
+    from caduceus.agents.images import DEFAULT_TAG
+
+    inspected = []
+
+    def fake_docker(*args, timeout=15.0):
+        if args[:2] == ("image", "inspect"):
+            inspected.append(args[2])
+            return 0, ""
+        if args[0] == "version":
+            return 0, "29.0"
+        if args[0] == "info":
+            return 0, '{"runc": {}}'
+        return 0, ""
+
+    monkeypatch.setattr(doc, "_docker", fake_docker)
+    monkeypatch.setattr(doc.shutil, "which", lambda _: "/usr/bin/docker")
+    doc.run_doctor()
+    assert inspected == [DEFAULT_TAG]

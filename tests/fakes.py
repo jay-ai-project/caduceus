@@ -316,7 +316,7 @@ class FakeAgentService:
         self._agents = {a.name: a for a in (agents or [])}
         self.removed: list[str] = []
 
-    async def create(self, name, wait=True, progress=None):
+    async def create(self, name, wait=True, progress=None, *, model=None, image=None):
         if wait and progress is not None:
             for phase in ("preparing image", "creating container", "configuring agent",
                           "starting agent", "warming up"):
@@ -324,6 +324,8 @@ class FakeAgentService:
                 if hasattr(res, "__await__"):
                     await res
         rec = make_agent(name=name, lifecycle=(Lifecycle.running if wait else Lifecycle.creating))
+        if model:
+            rec.model_alias = model
         self._agents[name] = rec
         return rec
 
@@ -388,16 +390,18 @@ def build_fake_services(agents=None, chat_script=None, config_service=None,
     reg = FakeRegistry(agents or [])
     agent_service = FakeAgentService(agents or [])
 
-    async def _dashboard_snapshot() -> dict:
-        recs = await agent_service.list(deep=False, probe=False)
-        status = GatewayStatus(
+    async def status_snapshot() -> GatewayStatus:
+        return GatewayStatus(
             running=True, control_listener="127.0.0.1:9700",
-            aigateway_listener="172.17.0.1:9701",
+            aigateway_listener="172.17.0.1:9701", upstream="healthy", uptime_s=1.0,
             agent_count=len(reg.list()), version=VERSION,
         )
+
+    async def _dashboard_snapshot() -> dict:
+        recs = await agent_service.list(deep=False, probe=False)
         return {
             "type": "snapshot",
-            "status": status.to_dict(),
+            "status": (await status_snapshot()).to_dict(),
             "agents": [AgentView.from_record(r, r.last_health).to_dict() for r in recs],
         }
 
@@ -412,6 +416,7 @@ def build_fake_services(agents=None, chat_script=None, config_service=None,
             config_path="/nonexistent/config.toml"),
         provisioner=FakeProvisioner(),
         event_bus=EventBus(_dashboard_snapshot),
+        status_snapshot=status_snapshot,
     )
 
 

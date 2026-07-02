@@ -67,6 +67,10 @@ class AgentRecord:
     #: base URL of the agent's hermes API server. Local: http://127.0.0.1:<host_port>
     #: (set after the container publishes its port); remote: the user-registered URL.
     endpoint: Optional[str] = None
+    #: remote only (U10/R6): the agent's own API-server bearer, when it differs from
+    #: `token` (`agent register --auth`). Transport auth uses `serve_auth or token`.
+    #: SECRET — never projected into AgentView.
+    serve_auth: Optional[str] = None
     #: Docker container name (`cad-<name>`) for local agents (U8; was `sandbox_name`).
     container_name: Optional[str] = None
     #: host path bind-mounted into the container (same path inside) — the agent's
@@ -89,6 +93,7 @@ class AgentRecord:
             "kind": self.kind.value,
             "token": self.token,
             "endpoint": self.endpoint,
+            "serve_auth": self.serve_auth,
             "container_name": self.container_name,
             "workspace_path": self.workspace_path,
             "host_port": self.host_port,
@@ -109,6 +114,7 @@ class AgentRecord:
             kind=AgentKind(d["kind"]),
             token=d["token"],
             endpoint=d.get("endpoint"),
+            serve_auth=d.get("serve_auth"),
             container_name=d.get("container_name"),
             workspace_path=d.get("workspace_path"),
             host_port=d.get("host_port"),

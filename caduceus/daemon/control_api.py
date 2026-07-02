@@ -60,12 +60,7 @@ def build_control_app(services, status_provider=None) -> FastAPI:
 
     @app.get("/status")
     async def status():
-        if status_provider is not None:
-            gs = await status_provider()
-        else:
-            from caduceus.daemon.wiring import build_status
-
-            gs = build_status(services.settings, registry)
+        gs = await (status_provider or services.status_snapshot)()
         return gs.to_dict()
 
     @app.get("/api/events")
@@ -99,7 +94,8 @@ def build_control_app(services, status_provider=None) -> FastAPI:
         if not wait:
             async def gen_bg():
                 try:
-                    rec = await agents.create(spec.name, wait=False)
+                    rec = await agents.create(spec.name, wait=False,
+                                              model=spec.model, image=spec.image)
                     yield _sse({"event": "accepted", "agent": AgentView.from_record(rec).to_dict()})
                 except Exception as exc:  # noqa: BLE001 — surface as an in-band error event
                     yield _sse({"event": "error", **_err_event(exc)})
@@ -113,7 +109,8 @@ def build_control_app(services, status_provider=None) -> FastAPI:
 
         async def run():
             try:
-                rec = await agents.create(spec.name, progress=progress)
+                rec = await agents.create(spec.name, progress=progress,
+                                          model=spec.model, image=spec.image)
                 await q.put({"event": "done", "agent": AgentView.from_record(rec).to_dict()})
             except Exception as exc:  # noqa: BLE001 — surface as an in-band error event
                 await q.put({"event": "error", **_err_event(exc)})
