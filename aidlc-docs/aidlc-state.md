@@ -358,11 +358,29 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
 - **Gates**: per-stage approval gates WAIVED for this cycle (blanket user pre-approval);
   audit.md entry required per phase; commit per phase (one-line message, no trailer).
 - **Baseline**: 271 unit+PBT green + 3 Playwright e2e; DoD in the plan file.
-- [ ] Phase 1 · [ ] Phase 2 · [ ] Phase 3 · [ ] Phase 4 · [ ] Phase 5 · [ ] DoD verified
+- [x] Phase 1 (1ccf467) · [x] Phase 2 (df164b9) · [x] Phase 3 (fc52da5) ·
+  [x] Phase 4 (8adfe4f) · [x] Phase 5 (8954d6e) · [x] DoD verified + live smoke
+- **Result**: R1–R18 all implemented. **308 unit+PBT + 4 Playwright e2e green**
+  (was 271+3); removed-symbol grep clean; README synced.
+- **Live smoke (Docker 29.4.0 + hermes image + llama-swap upstream)**: status shows
+  upstream healthy + uptime + pid; doctor all-ok (image tag fixed, upstream check);
+  boot reconcile reconnected existing agent; `create --model` rendered into agent
+  config; `agent config` real E2E (get w/ real skills/tools/soul; soul hot-applied;
+  add-skill & protected-key rejected exit 2; disable-tool restarted container +
+  refreshed endpoint, stayed healthy); chat "PONG"; **cancel mid-stream →
+  done{cancelled}**; history 4 turns; `gateway stop` waits + exits clean w/
+  containers untouched; `gateway restart` works.
+- **Defect U10-L1 found & fixed live** (2 parts): (1) with two uvicorn servers,
+  per-server signal capture meant SIGTERM reached only one → half-dead daemon;
+  fixed with a `_NoSignalServer` subclass + one loop-level SIGTERM/SIGINT handler
+  flipping `should_exit` on both. (2) an orphaned long-lived SSE connection
+  (/api/events) blocked graceful shutdown indefinitely; fixed with
+  `timeout_graceful_shutdown=5` on both servers. Verified: stop completes ~7s even
+  with a live SSE subscriber.
 
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (U10 Review Remediation) — plan approved, execution
-  pending (to run via goal command; gates waived, audit per phase).
+- **Lifecycle Phase**: U10 Review Remediation — ✅ COMPLETE (all phases committed;
+  → Operations placeholder).
 - **Prior**: CONSTRUCTION (U9 Real-time Dashboard via SSE) — ✅ CODE COMPLETE,
   committed 058d4a0.
 - **U9 Real-time Dashboard (polling → SSE push)**: Replaced the Web UI's 3s poll of

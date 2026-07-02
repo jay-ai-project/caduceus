@@ -149,6 +149,10 @@ def render_config_result(result, as_json: bool) -> None:
     if as_json:
         emit_json(result.to_dict())
         return
+    if not result.applied and not result.verified:
+        # rejected before anything was written (validation / conflicting flags)
+        error(f"config not applied: {result.detail}")
+        return
     status = "verified" if result.verified else "NOT verified"
     emit(f"config applied ({result.strategy}, {status}): {', '.join(result.applied) or 'no-op'}")
     if result.detail:

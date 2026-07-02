@@ -178,7 +178,15 @@ def agent_config(
     if change.is_empty():
         render.error("no changes requested (use --get to view, or pass edit options)")
         raise typer.Exit(EXIT_USAGE)
-    _run(lambda: render.render_config_result(client.set_config(name, change), json_out))
+
+    def go():
+        res = client.set_config(name, change)
+        render.render_config_result(res, json_out)
+        if not res.applied and not res.verified:
+            raise typer.Exit(EXIT_USAGE)    # rejected: nothing was written
+        if res.applied and not res.verified:
+            raise typer.Exit(EXIT_RUNTIME)  # written but read-back mismatch
+    _run(go)
 
 
 @agent_app.command("chat")

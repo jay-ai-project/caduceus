@@ -63,8 +63,11 @@ class Services:
 def build_status(settings: Settings, registry: Registry) -> GatewayStatus:
     """The one place a running daemon's GatewayStatus is assembled (shared by the
     Control API `/status` route and the Web UI event snapshot)."""
+    import os
+
     return GatewayStatus(
         running=True,
+        pid=os.getpid(),
         control_listener=settings.control_bind,
         aigateway_listener=settings.aigateway_bind,
         agent_count=len(registry.list()),

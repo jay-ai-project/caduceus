@@ -177,3 +177,13 @@ def test_gateway_config_bad_runtime(monkeypatch):
     _patch_client(monkeypatch, up=True)
     res = runner.invoke(cli_app.app, ["gateway", "config", "--runtime", "bogus"])
     assert res.exit_code == 2  # usage/validation error
+
+
+def test_agent_config_rejected_change_is_usage_error(monkeypatch):
+    # U10: a validation-rejected change (nothing written) exits 2 with a clear message.
+    from caduceus.common.dto import ConfigResult
+    _patch_client(monkeypatch, result=ConfigResult(
+        applied=[], verified=False, detail="adding skills is not supported"))
+    res = runner.invoke(cli_app.app, ["agent", "config", "a1", "--add-skill", "x"])
+    assert res.exit_code == 2
+    assert "not applied" in (res.stdout + str(res.stderr))

@@ -170,16 +170,47 @@ class GatewayService:
 
     def _serve(self, control_app, aigateway_app, services) -> None:  # pragma: no cover
         import asyncio
+        import contextlib
+        import signal
 
         import uvicorn
+
+        # With TWO uvicorn servers in one process, uvicorn's per-server signal capture
+        # is broken: each `serve()` overwrites the previous handler, so SIGTERM reaches
+        # only ONE server — the other keeps the process alive half-dead (found live,
+        # U10-L1: `gateway stop` timed out; control API down, process still running).
+        # Fix: disable uvicorn's capture entirely and install one loop-level handler
+        # that flips `should_exit` on BOTH servers.
+        class _NoSignalServer(uvicorn.Server):
+            @contextlib.contextmanager
+            def capture_signals(self):
+                yield
 
         install_access_log_filter()  # silence hermes backend-probe 404 noise
         c_host, c_port = self.settings.control_bind.rsplit(":", 1)
         a_host, a_port = self.settings.aigateway_bind.rsplit(":", 1)
-        c = uvicorn.Server(uvicorn.Config(control_app, host=c_host, port=int(c_port), log_level="info"))
-        a = uvicorn.Server(uvicorn.Config(aigateway_app, host=a_host, port=int(a_port), log_level="info"))
+        # timeout_graceful_shutdown: long-lived SSE responses (/api/events, chat)
+        # can outlive their client (a vanished browser/curl leaves the connection
+        # "active"), which otherwise blocks shutdown indefinitely (U10-L1 part 2).
+        # 5s grace, then uvicorn force-closes the stragglers — well inside the CLI's
+        # 10s stop wait.
+        c = _NoSignalServer(uvicorn.Config(control_app, host=c_host, port=int(c_port),
+                                           log_level="info", timeout_graceful_shutdown=5))
+        a = _NoSignalServer(uvicorn.Config(aigateway_app, host=a_host, port=int(a_port),
+                                           log_level="info", timeout_graceful_shutdown=5))
 
         async def _run():
+            loop = asyncio.get_running_loop()
+
+            def _graceful() -> None:
+                c.should_exit = True
+                a.should_exit = True
+
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                try:
+                    loop.add_signal_handler(sig, _graceful)
+                except (NotImplementedError, RuntimeError):  # non-main thread / platform
+                    pass
             # Reconnect to still-running agent containers from one live `docker ps`
             # (BR-O2) before serving, so `agent ls` / chat reflect reality immediately.
             try:
