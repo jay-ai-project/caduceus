@@ -88,8 +88,8 @@ class ControlAPIClient:
         data = self._json(self._c().get("/agents", params={"deep": deep}))
         return [AgentView.from_dict(d) for d in data]
 
-    def remove_agent(self, name: str, force: bool = False) -> None:
-        r = self._c().delete(f"/agents/{name}", params={"force": force})
+    def remove_agent(self, name: str) -> None:
+        r = self._c().delete(f"/agents/{name}")
         if r.status_code >= 400:
             raise ControlError(_err_message(r))
 

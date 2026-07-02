@@ -1,8 +1,11 @@
 """PURE rendering of an agent's hermes config pointing the LLM provider at the
 caduceus AI-Gateway (BR-A5).
 
-The agent's bearer token is delivered via the OPENAI_API_KEY env var (not written
-into the config file), so the rendered text contains no secret.
+NOTE the rendered text **contains the agent's bearer token** (`api_key` inline):
+hermes refuses to forward OPENAI_API_KEY to a non-openai.com base_url (#28660),
+so an inline key is required. The file only ever lives inside the agent's
+container (injected via `docker cp`, chowned/chmod 640 by the image's init) —
+it is never written to the host.
 """
 
 from __future__ import annotations

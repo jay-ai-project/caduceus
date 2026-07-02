@@ -10,13 +10,9 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from caduceus.common.models import AgentRecord, HealthLevel, HealthStatus
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from caduceus.common.util import now_iso as _now
 
 
 @dataclass

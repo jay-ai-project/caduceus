@@ -43,15 +43,13 @@ class ChatService:
         transport_factory: TransportFactory = Transport.for_agent,
         *,
         creating_retry_delay: float = 0.5,
-        reuse_transport: bool = True,
     ):
         self.registry = registry
         self._health_check = health_check
         self._factory = transport_factory
         self._creating_retry_delay = creating_retry_delay
-        # Reuse one open HTTP transport (and its session) per agent across turns, so
-        # session creation is paid once, not per turn.
-        self._reuse = reuse_transport
+        # One open HTTP transport (and its session) is reused per agent across turns,
+        # so session creation is paid once, not per turn.
         self._pool: dict[str, _Pooled] = {}
 
     async def chat_stream(self, name: str, message: str) -> AsyncIterator[ChatEvent]:
@@ -65,10 +63,6 @@ class ChatService:
             yield gate
             return
 
-        if not self._reuse:
-            async for ev in self._stream_oneshot(rec, message):
-                yield ev
-            return
         async for ev in self._stream_pooled(rec, message):
             yield ev
 
@@ -82,7 +76,7 @@ class ChatService:
         completion is issued (warm-up stops before any prompt).
         """
         rec = self.registry.get(name)
-        if rec is None or rec.kind != AgentKind.local or not self._reuse:
+        if rec is None or rec.kind != AgentKind.local:
             return
         entry = self._pool.get(name)
         if entry is not None and await entry.transport.is_alive():
@@ -119,22 +113,7 @@ class ChatService:
         finally:
             await transport.close()
 
-    # ---- per-call transport (legacy / remote) ------------------------
-    async def _stream_oneshot(self, rec: AgentRecord, message: str) -> AsyncIterator[ChatEvent]:
-        transport = self._factory(rec)
-        try:
-            await transport.open()
-        except Exception as exc:  # noqa: BLE001 — connect failure → terminal error
-            yield ChatEvent.error_(f"could not reach agent '{rec.name}': {exc}", code="agent_unavailable")
-            return
-        try:
-            async for ev in transport.chat_stream(rec.session_id, message):
-                yield ev
-        finally:
-            await self._persist_session(rec, transport)
-            await transport.close()
-
-    # ---- pooled transport (local ACP; reused across turns) -----------
+    # ---- pooled transport (reused across turns) ----------------------
     async def _stream_pooled(self, rec: AgentRecord, message: str) -> AsyncIterator[ChatEvent]:
         entry = self._pool.get(rec.name)
         if entry is not None and not await entry.transport.is_alive():
@@ -153,7 +132,7 @@ class ChatService:
                 return
             broke = False
             try:
-                async for ev in entry.transport.chat_stream(rec.session_id, message):
+                async for ev in entry.transport.chat_stream(message):
                     if ev.type == ChatEventType.error and ev.code in ("transport_broken", "timeout"):
                         broke = True
                     yield ev
@@ -202,6 +181,11 @@ class ChatService:
             hs = await self._health_check(rec, False)
             if self._healthy(hs):
                 return None
+            return ChatEvent.error_(
+                f"agent '{rec.name}' is still provisioning — try again shortly "
+                f"(watch `agent ls` for it to reach running/healthy)",
+                code="agent_unavailable",
+            )
         return ChatEvent.error_(
             f"agent '{rec.name}' is unavailable ({hs.detail or hs.level.value}); "
             f"check `agent ls`, recover with `agent start`",

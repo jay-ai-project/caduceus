@@ -18,10 +18,6 @@ class UpstreamClient:
             timeout=httpx.Timeout(connect=t.connect, read=t.read, write=t.read, pool=t.connect)
         )
 
-    @property
-    def base_url(self) -> str:
-        return self._settings.upstream_base_url
-
     def _url(self, subpath: str) -> str:
         return self._settings.upstream_base_url.rstrip("/") + "/" + subpath.lstrip("/")
 

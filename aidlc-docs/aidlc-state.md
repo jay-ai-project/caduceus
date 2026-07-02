@@ -345,9 +345,26 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - Artifacts: construction/build-and-test/u8-{build,unit-test,integration-test}-instructions.md,
     u8-build-and-test-summary.md.
 
+## 🔵 NEW CYCLE — U10 Review Remediation (started 2026-07-02)
+- **Trigger**: user requested a full-codebase review, then approved ALL 18 findings at the
+  most robust level ("미구현 항목은 구현, 추천 제안은 수락; 공격적 리팩토링 허용").
+- **Review**: aidlc-docs/reviews/2026-07-02-codebase-review.md (R1–R18 + Decision Record —
+  all approved; per-item choices recorded there).
+- **Plan (single source of spec)**: aidlc-docs/plans/2026-07-02-review-remediation-plan.md
+  — 5 phases: P1 dead-code/comments/refactors (R11–R13) → P2 bug fixes (R1–R8) →
+  P3 `agent config` real implementation incl. hermes-schema spike (R9) →
+  P4 cancel/Stop-button/markdown/tooltip/remote-history (R10, R15, R18) →
+  P5 stop-wait/restart/doctor-upstream/README (R14, R16, R17).
+- **Gates**: per-stage approval gates WAIVED for this cycle (blanket user pre-approval);
+  audit.md entry required per phase; commit per phase (one-line message, no trailer).
+- **Baseline**: 271 unit+PBT green + 3 Playwright e2e; DoD in the plan file.
+- [ ] Phase 1 · [ ] Phase 2 · [ ] Phase 3 · [ ] Phase 4 · [ ] Phase 5 · [ ] DoD verified
+
 ## Current Status
-- **Lifecycle Phase**: CONSTRUCTION (U9 Real-time Dashboard via SSE) — ✅ CODE COMPLETE,
-  awaiting approval gate.
+- **Lifecycle Phase**: CONSTRUCTION (U10 Review Remediation) — plan approved, execution
+  pending (to run via goal command; gates waived, audit per phase).
+- **Prior**: CONSTRUCTION (U9 Real-time Dashboard via SSE) — ✅ CODE COMPLETE,
+  committed 058d4a0.
 - **U9 Real-time Dashboard (polling → SSE push)**: Replaced the Web UI's 3s poll of
   `/status` + `/agents?probe=false` with a single `GET /api/events` SSE stream (llama-swap
   style). New EventBus (caduceus/daemon/events.py): coalescing per-subscriber, snapshot-on-

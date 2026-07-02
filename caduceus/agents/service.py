@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from caduceus.agents.hermes_config import api_server_env, remote_setup_guidance, render_hermes_config
 from caduceus.agents.names import container_name, validate_name
@@ -21,12 +20,9 @@ from caduceus.agents.tokens import mint_token
 from caduceus.common.errors import ProxyError, invalid_request_error, upstream_error
 from caduceus.common.logging import get_logger
 from caduceus.common.models import AgentKind, AgentRecord, HealthLevel, HealthStatus, Lifecycle
+from caduceus.common.util import call_maybe_async, make_emit, now_iso as _now
 
 log = get_logger("caduceus.agents")
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
@@ -81,12 +77,7 @@ class AgentService:
         """Provision a local agent (FR-U7-2). `wait=False` runs the saga in the
         background: the `creating` record is returned immediately and `agent ls`
         reflects the live `creating → running → healthy | failed` progression."""
-        async def _emit(phase: str, detail: str = "") -> None:
-            if progress is None:
-                return
-            res = progress(phase, detail)
-            if hasattr(res, "__await__"):
-                await res
+        _emit = make_emit(progress)
 
         name = validate_name(name)
         if self.registry.get(name) is not None or name in self._jobs:
@@ -179,7 +170,7 @@ class AgentService:
 
     async def _await_ready(self, rec: AgentRecord) -> None:
         """Poll `/health` until the agent answers or `ready_timeout` elapses."""
-        deadline = asyncio.get_event_loop().time() + self._ready_timeout
+        deadline = asyncio.get_running_loop().time() + self._ready_timeout
         while True:
             try:
                 hs = await self.health.check(rec, deep=False)
@@ -187,19 +178,15 @@ class AgentService:
                     return
             except Exception as exc:  # noqa: BLE001 — keep polling until deadline
                 log.debug("readiness probe for %s: %s", rec.name, exc)
-            if asyncio.get_event_loop().time() >= deadline:
+            if asyncio.get_running_loop().time() >= deadline:
                 raise upstream_error(f"agent '{rec.name}' did not become ready in "
                                      f"{self._ready_timeout:.0f}s")
             await asyncio.sleep(0.5)
 
     async def _warm(self, rec: AgentRecord) -> None:
         """Best-effort no-LLM warm-up via the injected hook (BR-P6/P13)."""
-        if self._warm_hook is None:
-            return
         try:
-            res = self._warm_hook(rec.name)
-            if hasattr(res, "__await__"):
-                await res
+            await call_maybe_async(self._warm_hook, rec.name)
         except Exception as exc:  # noqa: BLE001 — non-fatal; re-warms lazily on first chat
             log.info("warm-up for %s failed (will re-warm on first chat): %s", rec.name, exc)
 
@@ -313,7 +300,7 @@ class AgentService:
             rec.lifecycle = Lifecycle.failed
 
     # ---- remove ------------------------------------------------------
-    async def remove(self, name: str, force: bool = False) -> None:
+    async def remove(self, name: str) -> None:
         rec = self.registry.get(name)
         if rec is None:
             raise invalid_request_error(f"no such agent '{name}'")

@@ -86,7 +86,7 @@ function renderHeader(status, up) {
   elS.textContent = `running · ${status.agent_count} agents · upstream ${status.upstream} · v${status.version}`;
 }
 
-function badge(cls, value) {
+function badge(value) {
   return el("span", { class: `badge b-${value}`, text: value });
 }
 
@@ -109,7 +109,7 @@ function renderAgents() {
         el("span", { class: "badge kind", text: a.kind }),
       ),
       el("div", { class: "row1", style: "margin-top:6px;gap:6px;justify-content:flex-start" },
-        badge("lc", a.lifecycle), badge("h", a.health),
+        badge(a.lifecycle), badge(a.health),
       ),
       el("div", { class: "meta", text: `${a.endpoint || "—"} · model ${a.model_alias}${a.has_session ? " · session" : ""}` }),
     );
@@ -142,7 +142,7 @@ async function agentAction(name, action) {
 
 async function removeAgent(name) {
   if (!confirm(`Remove agent '${name}'? This is irreversible.`)) return;
-  try { await fetchJSON(`/agents/${encodeURIComponent(name)}?force=true`, { method: "DELETE" }); }
+  try { await fetchJSON(`/agents/${encodeURIComponent(name)}`, { method: "DELETE" }); }
   catch (e) { alert(`remove failed: ${e.message}`); }
   if (state.selected === name) { state.selected = null; showEmpty(); }
 }
@@ -219,7 +219,7 @@ async function openChat(name) {
   renderAgents();
   showChat();
   $("#chat-head").innerHTML = "";
-  $("#chat-head").append(el("span", { text: name }), el("span", { class: "muted", text: "ephemeral session" }));
+  $("#chat-head").append(el("span", { text: name }), el("span", { class: "muted", text: "persistent session" }));
   const tr = $("#transcript");
   tr.innerHTML = "";
   tr.append(el("div", { class: "muted", text: "loading history…" }));

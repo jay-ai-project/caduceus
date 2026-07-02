@@ -226,11 +226,9 @@ class FakeTransport(Transport):
     async def health(self) -> HealthStatus:
         return HealthStatus(self.health_level, shallow=self.health_level == HealthLevel.healthy)
 
-    async def _raw_stream(self, session_id, message):  # noqa: ANN001
-        if session_id is None or session_id == self.reject_session:
-            self.session_id = self.new_session_id
-        else:
-            self.session_id = session_id
+    async def _raw_stream(self, message):  # noqa: ANN001
+        if self.session_id is None or self.session_id == self.reject_session:
+            self.session_id = self.new_session_id  # transparent recreate
         for ev in self.script:
             if self._cancelled:
                 self.cancel_sent = True
@@ -262,8 +260,8 @@ class _ScriptedWireTransport(Transport):
     def _decode(self, frame: dict) -> Optional[ChatEvent]:  # overridden
         raise NotImplementedError
 
-    async def _raw_stream(self, session_id, message):  # noqa: ANN001
-        self.session_id = session_id or "s"
+    async def _raw_stream(self, message):  # noqa: ANN001
+        self.session_id = self.session_id or "s"
         for frame in self.wire:
             ev = self._decode(frame)
             if ev is not None:
@@ -338,7 +336,7 @@ class FakeAgentService:
     async def list(self, deep=False, probe=True):
         return list(self._agents.values())
 
-    async def remove(self, name, force=False):
+    async def remove(self, name):
         self.removed.append(name)
         self._agents.pop(name, None)
 
@@ -384,7 +382,7 @@ def build_fake_services(agents=None, chat_script=None, config_service=None,
     from caduceus.common.dto import AgentView, GatewayStatus
     from caduceus.common.settings import Settings
     from caduceus.config.gateway_config import GatewayConfigService
-    from caduceus.daemon.control_api import VERSION
+    from caduceus import __version__ as VERSION
     from caduceus.daemon.events import EventBus
 
     reg = FakeRegistry(agents or [])
@@ -462,7 +460,7 @@ class FakeControlAPIClient:
     def list_agents(self, deep=False):
         return list(self._agents)
 
-    def remove_agent(self, name, force=False):
+    def remove_agent(self, name):
         if self._raise:
             raise self._raise
 

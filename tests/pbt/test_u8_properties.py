@@ -158,7 +158,7 @@ def test_pbt_u8_5_cancel_single_terminal(k):
         t = FakeTransport(make_agent(), script=script)
         await t.open()
         t.request_cancel()  # cancel before/at stream start
-        out = [ev async for ev in t.chat_stream("s", "hi")]
+        out = [ev async for ev in t.chat_stream("hi")]
         terminals = [e for e in out if e.is_terminal()]
         assert len(terminals) == 1
         assert out[-1].type == ChatEventType.done

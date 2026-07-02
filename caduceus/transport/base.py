@@ -64,12 +64,15 @@ class Transport(ABC):
 
     # ---- streaming ---------------------------------------------------
     @abstractmethod
-    def _raw_stream(self, session_id: Optional[str], message: str) -> AsyncIterator[ChatEvent]:
-        """Protocol-specific raw event stream. Wrapped by `chat_stream`."""
+    def _raw_stream(self, message: str) -> AsyncIterator[ChatEvent]:
+        """Protocol-specific raw event stream for one turn on `self.session_id`.
+        Wrapped by `chat_stream`."""
 
-    def chat_stream(self, session_id: Optional[str], message: str) -> AsyncIterator[ChatEvent]:
-        """Uniform, terminal-guarded event stream (shared by all transports)."""
-        return normalize_stream(self._raw_stream(session_id, message))
+    def chat_stream(self, message: str) -> AsyncIterator[ChatEvent]:
+        """Uniform, terminal-guarded event stream (shared by all transports).
+        The turn runs on the transport's current session (`self.session_id`,
+        created/recreated by the transport itself)."""
+        return normalize_stream(self._raw_stream(message))
 
     def request_cancel(self) -> None:
         """Cooperative cancel (Q6/BR-C10): the raw stream ends with done{cancelled}."""

@@ -19,7 +19,8 @@ from typing import Optional
 from caduceus.common.dto import GatewayStatus
 from caduceus.common.logging import get_logger
 from caduceus.common.settings import ConfigError, Settings
-from caduceus.daemon.control_api import VERSION, build_control_app
+from caduceus import __version__ as VERSION
+from caduceus.daemon.control_api import build_control_app
 from caduceus.daemon.lock import AlreadyRunning, InstanceLock
 from caduceus.daemon.wiring import Services, build_services
 
@@ -92,8 +93,8 @@ class GatewayService:
         return self.settings
 
     # ---- lifecycle ---------------------------------------------------
-    def start(self, foreground: bool = True, daemonize: bool = False) -> None:
-        interactive = foreground and not daemonize and sys.stdin.isatty()
+    def start(self, daemonize: bool = False) -> None:
+        interactive = not daemonize and sys.stdin.isatty()
         self.bootstrap_config(interactive=interactive)
 
         try:

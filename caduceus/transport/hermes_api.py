@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -26,6 +25,7 @@ import httpx
 from caduceus.common.logging import get_logger, redact
 from caduceus.common.models import AgentRecord, HealthLevel, HealthStatus
 from caduceus.common.settings import Timeouts
+from caduceus.common.util import now_iso as _now
 from caduceus.transport.base import Transport, TransportKind, TransportState
 from caduceus.transport.events import ChatEvent, HistoryTurn
 
@@ -35,10 +35,6 @@ log = get_logger("caduceus.transport.hermes_api")
 TOOL_FIELD_CAP = 4096
 #: the pseudo tool_name hermes uses to stream reasoning as tool.progress
 THINKING_TOOL = "_thinking"
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _truncate(s: str) -> str:
@@ -183,7 +179,7 @@ class HermesApiTransport(Transport):
                             checked_at=_now())
 
     # ---- streaming ---------------------------------------------------
-    async def _raw_stream(self, session_id: Optional[str], message: str) -> AsyncIterator[ChatEvent]:
+    async def _raw_stream(self, message: str) -> AsyncIterator[ChatEvent]:
         await self.open()
         self._run_id = None
         try:

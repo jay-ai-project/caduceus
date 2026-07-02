@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -19,15 +18,12 @@ from caduceus.common.dto import (
     ConfigChange,
     CreateSpec,
     GatewayConfigChange,
-    GatewayStatus,
     RegisterSpec,
 )
-from caduceus.common.errors import ProxyError
+from caduceus.common.errors import ProxyError, invalid_request_error
 from caduceus.common.models import AgentKind
 from caduceus.config.editor import ReadOnlyError
 from caduceus.webui import mount_webui
-
-VERSION = "0.1.0"
 
 
 def _sse(obj: dict) -> bytes:
@@ -67,11 +63,9 @@ def build_control_app(services, status_provider=None) -> FastAPI:
         if status_provider is not None:
             gs = await status_provider()
         else:
-            gs = GatewayStatus(
-                running=True, control_listener=services.settings.control_bind,
-                aigateway_listener=services.settings.aigateway_bind,
-                agent_count=len(registry.list()), version=VERSION,
-            )
+            from caduceus.daemon.wiring import build_status
+
+            gs = build_status(services.settings, registry)
         return gs.to_dict()
 
     @app.get("/api/events")
@@ -97,7 +91,10 @@ def build_control_app(services, status_provider=None) -> FastAPI:
         # background provisioning, and return a single `accepted` event immediately —
         # `agent ls` then reflects the live creating→running→healthy progression.
         # wait=true: stream live provisioning progress as SSE → final done/error.
-        spec = CreateSpec.from_dict(await request.json())
+        try:
+            spec = CreateSpec.from_dict(await request.json())
+        except Exception as exc:  # noqa: BLE001 — malformed body → 400, not a 500
+            return _err(invalid_request_error(f"invalid request body: {exc}"))
 
         if not wait:
             async def gen_bg():
@@ -157,9 +154,9 @@ def build_control_app(services, status_provider=None) -> FastAPI:
             return _err(exc)
 
     @app.delete("/agents/{name}")
-    async def remove(name: str, force: bool = False):
+    async def remove(name: str):
         try:
-            await agents.remove(name, force=force)
+            await agents.remove(name)
             return Response(status_code=204)
         except Exception as exc:  # noqa: BLE001
             return _err(exc)

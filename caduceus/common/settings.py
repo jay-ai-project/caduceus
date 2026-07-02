@@ -58,23 +58,9 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        """Build settings from the environment. Required fields are left unset
-        (None) when absent — they are NOT defaulted to any particular host/model.
-        """
-        return cls(
-            upstream_base_url=os.getenv("CADUCEUS_UPSTREAM_BASE_URL"),
-            default_model=os.getenv("CADUCEUS_DEFAULT_MODEL"),
-            control_bind=os.getenv("CADUCEUS_CONTROL_BIND", "127.0.0.1:9700"),
-            aigateway_bind=os.getenv("CADUCEUS_AIGATEWAY_BIND", "0.0.0.0:9701"),
-            aigateway_advertise_host=os.getenv("CADUCEUS_AIGW_ADVERTISE_HOST"),
-            upstream_auth=os.getenv("CADUCEUS_UPSTREAM_AUTH"),
-            container_runtime=os.getenv("CADUCEUS_CONTAINER_RUNTIME", "runc"),
-            timeouts=Timeouts(
-                connect=float(os.getenv("CADUCEUS_CONNECT_TIMEOUT", "10")),
-                read=float(os.getenv("CADUCEUS_IDLE_TIMEOUT", "120")),
-                unary_total=float(os.getenv("CADUCEUS_UNARY_TIMEOUT", "300")),
-            ),
-        )
+        """Build settings from the environment only (no config file). Required
+        fields are left unset (None) when absent — never defaulted."""
+        return cls.from_env_and_file(None)
 
     @classmethod
     def from_env_and_file(cls, path: "str | os.PathLike | None" = None) -> "Settings":
@@ -152,9 +138,9 @@ class Settings:
         missing = self.missing_required()
         if missing:
             raise ConfigError(
-                "Upstream LLM is not configured. Configure it before starting the gateway.\n"
-                "  via env:  CADUCEUS_UPSTREAM_BASE_URL=<url>  CADUCEUS_DEFAULT_MODEL=<model>\n"
-                "  (U4 will add an interactive `caduceus gateway` setup that prompts when unset\n"
-                "   and reuses the saved values when already configured.)\n"
+                "Upstream LLM is not configured. Configure it before starting the gateway:\n"
+                "  via env:     CADUCEUS_UPSTREAM_BASE_URL=<url>  CADUCEUS_DEFAULT_MODEL=<model>\n"
+                "  via config:  caduceus gateway config --upstream-url <url> --model <model>\n"
+                "  or run `caduceus gateway start` in a terminal for the interactive setup.\n"
                 f"  Missing: {', '.join(missing)}"
             )

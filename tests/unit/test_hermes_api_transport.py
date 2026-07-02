@@ -116,7 +116,7 @@ def test_parse_history_data_key():
 async def test_chat_stream_maps_and_terminates():
     t = HermesApiTransport(_rec())
     _wire(t, {})
-    events = [ev async for ev in t.chat_stream(None, "hi")]
+    events = [ev async for ev in t.chat_stream("hi")]
     types = [e.type for e in events]
     assert types.count(ChatEventType.token) == 2
     assert ChatEventType.thinking in types

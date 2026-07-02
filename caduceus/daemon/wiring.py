@@ -11,12 +11,11 @@ chat, sweep) — construction here is side-effect-free, so wiring is importable/
 from __future__ import annotations
 
 import asyncio
-import socket
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
+from caduceus import __version__ as VERSION
 from caduceus.agents.health import HealthChecker, HealthProbes
 from caduceus.agents.images import ImageBuilder
 from caduceus.agents.provisioner import DockerProvisioner
@@ -26,9 +25,18 @@ from caduceus.common.dto import AgentView, ConfigSnapshot, GatewayStatus, Reload
 from caduceus.common.logging import get_logger
 from caduceus.common.models import AgentKind, AgentRecord, HealthLevel, Lifecycle
 from caduceus.common.settings import Settings
+from caduceus.common.util import now_iso as _now
 from caduceus.config.editor import ConfigEditor
 from caduceus.config.service import ConfigService
 from caduceus.transport.base import Transport
+
+if TYPE_CHECKING:  # concrete types without import cycles at runtime
+    from fastapi import FastAPI
+
+    from caduceus.config.gateway_config import GatewayConfigService
+    from caduceus.daemon.events import EventBus
+    from caduceus.transport.chat import ChatService
+    from caduceus.transport.supervisor import Supervisor
 
 log = get_logger("caduceus.daemon.wiring")
 
@@ -39,17 +47,25 @@ class Services:
     registry: Registry
     provisioner: DockerProvisioner
     agent_service: AgentService
-    chat_service: "object"
+    chat_service: "ChatService"
     config_service: ConfigService
-    gateway_config_service: "object"
-    supervisor: "object"
-    aigateway_app: "object"
-    event_bus: "object"
+    gateway_config_service: "GatewayConfigService"
+    supervisor: "Supervisor"
+    aigateway_app: "FastAPI"
+    event_bus: "EventBus"
     advertise_host: str
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def build_status(settings: Settings, registry: Registry) -> GatewayStatus:
+    """The one place a running daemon's GatewayStatus is assembled (shared by the
+    Control API `/status` route and the Web UI event snapshot)."""
+    return GatewayStatus(
+        running=True,
+        control_listener=settings.control_bind,
+        aigateway_listener=settings.aigateway_bind,
+        agent_count=len(registry.list()),
+        version=VERSION,
+    )
 
 
 async def _endpoint_reachable(endpoint: Optional[str], timeout: float = 3.0) -> bool:
@@ -134,19 +150,13 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
     # U9: event bus powering the Web UI `/api/events` push stream. The snapshot is
     # the exact data the old dashboard polls returned (`/status` + `/agents?probe=false`),
     # so switching the UI from polling to push is behaviour-preserving.
-    from caduceus.daemon.control_api import VERSION
     from caduceus.daemon.events import EventBus
 
     async def _dashboard_snapshot() -> dict:
         recs = await agent_service.list(deep=False, probe=False)
-        status = GatewayStatus(
-            running=True, control_listener=settings.control_bind,
-            aigateway_listener=settings.aigateway_bind,
-            agent_count=len(registry.list()), version=VERSION,
-        )
         return {
             "type": "snapshot",
-            "status": status.to_dict(),
+            "status": build_status(settings, registry).to_dict(),
             "agents": [AgentView.from_record(r, r.last_health).to_dict() for r in recs],
         }
 
@@ -210,9 +220,6 @@ def build_services(settings: Settings, state_dir: "str | Path" = "~/.caduceus") 
 
 
 # ---- config sandbox I/O (real hermes paths/reload → Build & Test) ----
-HERMES_DIR = "/root/.hermes"
-
-
 def _make_read_config(provisioner):
     async def _read(rec: AgentRecord) -> ConfigSnapshot:
         # Build & Test: read skills/tools/soul/core from the sandbox hermes config.
@@ -239,13 +246,23 @@ def _make_reload(provisioner, restart):
 
 
 def _detect_bridge_gateway() -> Optional[str]:
-    """Best-effort docker bridge gateway IP (e.g. 172.17.0.1)."""
+    """Docker bridge gateway IP (e.g. 172.17.0.1) via `docker network inspect`.
+
+    Best-effort: any failure (no docker, no bridge network, odd output) → None and
+    the caller falls back to the conventional 172.17.0.1. An explicit
+    `aigateway_advertise_host` setting always wins over detection.
+    """
+    import subprocess
+
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("10.255.255.255", 1))
-        ip = s.getsockname()[0]
-        s.close()
-        # not the bridge per se, but a reachable host IP; the explicit setting wins.
-        return None if ip.startswith("127.") else None
+        out = subprocess.run(
+            ["docker", "network", "inspect", "bridge",
+             "--format", "{{(index .IPAM.Config 0).Gateway}}"],
+            capture_output=True, text=True, timeout=5.0,
+        )
+        ip = (out.stdout or "").strip()
+        if out.returncode == 0 and ip and not ip.startswith("127."):
+            return ip
+        return None
     except Exception:  # noqa: BLE001
         return None

@@ -12,6 +12,7 @@ import asyncio
 
 from caduceus.common.errors import upstream_error
 from caduceus.common.logging import get_logger
+from caduceus.common.util import make_emit
 
 log = get_logger("caduceus.images")
 
@@ -35,12 +36,7 @@ class ImageBuilder:
         """Pull the image if absent; return the tag.
 
         `progress(phase, detail="")` (optional, sync or async) is called for the slow pull."""
-        async def _emit(phase: str, detail: str = "") -> None:
-            if progress is None:
-                return
-            res = progress(phase, detail)
-            if hasattr(res, "__await__"):
-                await res
+        _emit = make_emit(progress)
 
         if await self.image_exists(tag):
             return tag

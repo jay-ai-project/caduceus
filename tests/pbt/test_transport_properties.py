@@ -112,8 +112,8 @@ def test_transport_uniformity(steps):
     rec = make_agent()
     serve = ServeLikeFake(rec, _to_serve_wire(steps))
     acp = AcpLikeFake(rec, _to_acp_wire(steps))
-    a = asyncio.run(_collect(serve.chat_stream("s", "hi")))
-    b = asyncio.run(_collect(acp.chat_stream("s", "hi")))
+    a = asyncio.run(_collect(serve.chat_stream("hi")))
+    b = asyncio.run(_collect(acp.chat_stream("hi")))
     assert a == b  # identical ChatEvent streams regardless of transport
 
 

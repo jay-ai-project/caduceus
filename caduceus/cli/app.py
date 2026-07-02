@@ -6,7 +6,6 @@ non-zero exit (Q6). Business logic lives in the daemon services.
 
 from __future__ import annotations
 
-import sys
 from typing import Optional
 
 import typer
@@ -106,11 +105,11 @@ def agent_ls(json_out: bool = typer.Option(False, "--json"),
 
 
 @agent_app.command("rm")
-def agent_rm(name: str, force: bool = typer.Option(False, "--force")):
+def agent_rm(name: str):
     client = _client_or_exit()
 
     def go():
-        client.remove_agent(name, force=force)
+        client.remove_agent(name)
         render.emit(f"removed agent '{name}'")
     _run(go)
 
@@ -220,11 +219,10 @@ def _chat_once(client: ControlAPIClient, name: str, message: str) -> int:
 
 # ================= gateway commands =================
 @gateway_app.command("start")
-def gateway_start(daemon: bool = typer.Option(False, "-d", "--daemon"),
-                  foreground: bool = typer.Option(True, "--foreground/--no-foreground")):
+def gateway_start(daemon: bool = typer.Option(False, "-d", "--daemon")):
     gw = get_gateway()
     try:
-        gw.start(foreground=not daemon and foreground, daemonize=daemon)
+        gw.start(daemonize=daemon)
     except Exception as exc:  # noqa: BLE001 — config/lock errors → clear message
         render.error(str(exc))
         raise typer.Exit(EXIT_RUNTIME)

@@ -106,7 +106,8 @@ class DockerProvisioner:
         return out
 
     def workspace_for(self, container: str) -> str:
-        """Host path bind-mounted at /workspace inside the container (persistent artifacts)."""
+        """Host path bind-mounted at /opt/data/workspace inside the container
+        (the agent's cwd; artifacts persist across delete+recreate)."""
         return str(self._workspace_root / container / "workspace")
 
     def _layout_env(self) -> dict[str, str]:
