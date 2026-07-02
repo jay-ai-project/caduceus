@@ -19,6 +19,7 @@ from caduceus.common.dto import (
     ConfigResult,
     ConfigSnapshot,
     CreateSpec,
+    DashboardCredentials,
     GatewayConfigChange,
     GatewayConfigView,
     GatewayStatus,
@@ -104,6 +105,12 @@ class ControlAPIClient:
 
     def start_agent(self, name: str) -> AgentView:
         return AgentView.from_dict(self._json(self._c().post(f"/agents/{name}/start")))
+
+    def dashboard_credentials(self, name: str) -> DashboardCredentials:
+        r = self._c().get(f"/agents/{name}/dashboard-credentials")
+        if r.status_code == 404:  # no such agent / no dashboard → usage error (U11)
+            raise ControlError(_err_message(r), exit_code=2)
+        return DashboardCredentials.from_dict(self._json(r))
 
     def get_config(self, name: str) -> ConfigSnapshot:
         return ConfigSnapshot.from_dict(self._json(self._c().get(f"/agents/{name}/config")))

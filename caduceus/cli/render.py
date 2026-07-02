@@ -49,6 +49,15 @@ def render_agents(views, as_json: bool) -> None:
         emit("  ".join(c.ljust(widths[i]) for i, c in enumerate(r)))
 
 
+def render_dashboard_credentials(creds, base_url: str, as_json: bool) -> None:
+    if as_json:
+        emit_json(creds.to_dict())
+        return
+    emit(f"url:      {base_url.rstrip('/')}{creds.url}")
+    emit(f"username: {creds.username}")
+    emit(f"password: {creds.password}")
+
+
 def render_status(gs, as_json: bool) -> None:
     if as_json:
         emit_json(gs.to_dict())

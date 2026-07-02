@@ -203,3 +203,51 @@ async def test_reconcile_all_reconnects_running(tmp_path):
     reg.get("r1").lifecycle = Lifecycle.stopped
     await svc.reconcile_all()
     assert reg.get("r1").lifecycle == Lifecycle.running  # BR-P9 (sandbox is running)
+
+
+# ---------- U11: dashboard provisioning ----------
+
+async def test_create_provisions_dashboard_by_default(tmp_path):
+    reg, svc, prov = make_service(tmp_path)
+    rec = await svc.create("d1")
+
+    assert rec.dashboard_password                                   # minted (BR-DB2)
+    assert prov.published_dashboard["cad-d1"] is True               # -p 127.0.0.1::9119
+    assert rec.dashboard_port == prov.dashboard_ports["cad-d1"]     # read after start
+    assert prov.env["HERMES_DASHBOARD"] == "true"
+    assert prov.env["HERMES_DASHBOARD_BASIC_AUTH_USERNAME"] == "d1"
+    assert prov.env["HERMES_DASHBOARD_BASIC_AUTH_PASSWORD"] == rec.dashboard_password
+    assert rec.dashboard_password != rec.token                      # independent secrets
+
+
+async def test_create_no_dashboard_omits_env_and_publish(tmp_path):
+    reg, svc, prov = make_service(tmp_path)
+    rec = await svc.create("d2", dashboard=False)
+
+    assert rec.dashboard_password is None and rec.dashboard_port is None
+    assert prov.published_dashboard["cad-d2"] is False              # BR-DB1: fully omitted
+    assert "HERMES_DASHBOARD" not in prov.env
+
+
+async def test_dashboard_port_failure_is_best_effort(tmp_path):
+    """BR-DB3: a dashboard port that can't be read must not fail the create."""
+    class NoDashPortProv(FakeProvisioner):
+        async def host_port(self, container, port=8642):
+            if port == 9119:
+                raise RuntimeError("docker port flake")
+            return await super().host_port(container, port)
+
+    reg, svc, prov = make_service(tmp_path, provisioner=NoDashPortProv())
+    rec = await svc.create("d3")
+    assert rec.lifecycle == Lifecycle.running                       # agent unaffected
+    assert rec.dashboard_port is None                               # dashboard just off
+
+
+async def test_start_refreshes_dashboard_port(tmp_path):
+    reg, svc, prov = make_service(tmp_path)
+    rec = await svc.create("d4")
+    before = rec.dashboard_port
+    await svc.stop("d4")
+    rec = await svc.start("d4")
+    assert rec.dashboard_port == prov.dashboard_ports["cad-d4"]     # BR-DB4
+    assert rec.dashboard_port != before                             # Docker reassigned

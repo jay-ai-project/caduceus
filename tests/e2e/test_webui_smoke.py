@@ -70,3 +70,18 @@ async def test_chat_view_has_stop_button_disabled_when_idle(webui_server: str, p
     await expect(stop).to_be_visible()
     await expect(stop).to_be_disabled()
     await expect(page.get_by_test_id("composer-send")).to_be_enabled()
+
+
+async def test_dashboard_link_and_creds_only_when_enabled(webui_server: str, page: Page):
+    # U11: an agent with a routable dashboard shows the link + Creds button;
+    # a dashboard-less agent shows neither.
+    await page.goto(webui_server + "/ui/")
+    link = page.get_by_test_id("dashboard-demo-agent")
+    await expect(link).to_be_visible(timeout=5000)
+    assert await link.get_attribute("href") == "/agents/demo-agent/dashboard/"
+    assert await link.get_attribute("target") == "_blank"
+    await expect(page.get_by_test_id("dash-cred-demo-agent")).to_be_visible()
+
+    await expect(page.get_by_test_id("agent-list")).to_contain_text("plain-agent")
+    await expect(page.get_by_test_id("dashboard-plain-agent")).to_have_count(0)
+    await expect(page.get_by_test_id("dash-cred-plain-agent")).to_have_count(0)

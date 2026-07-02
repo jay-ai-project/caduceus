@@ -59,12 +59,16 @@ def agent_create(name: str,
                      None, "--image", help="agent image tag override (default: pinned hermes image)"),
                  wait: bool = typer.Option(False, "--wait/--no-wait",
                                            help="block until the agent is provisioned & ready"),
+                 dashboard: bool = typer.Option(
+                     True, "--dashboard/--no-dashboard",
+                     help="provision the agent's web dashboard (default: on)"),
                  json_out: bool = typer.Option(False, "--json")):
     client = _client_or_exit()
 
     def go():
         view = None  # terminal record (wait: done; background: accepted)
-        for ev in client.create_agent(CreateSpec(name, model=model, image=image), wait=wait):
+        for ev in client.create_agent(CreateSpec(name, model=model, image=image,
+                                                 dashboard=dashboard), wait=wait):
             kind = ev.get("event")
             if kind == "progress":
                 render.progress(ev.get("phase", ""), ev.get("detail", ""))
@@ -105,6 +109,14 @@ def agent_ls(json_out: bool = typer.Option(False, "--json"),
              deep: bool = typer.Option(False, "--deep")):
     client = _client_or_exit()
     _run(lambda: render.render_agents(client.list_agents(deep=deep), json_out))
+
+
+@agent_app.command("dashboard-cred")
+def agent_dashboard_cred(name: str, json_out: bool = typer.Option(False, "--json")):
+    """Show the login credentials + proxy URL for an agent's dashboard (U11)."""
+    client = _client_or_exit()
+    _run(lambda: render.render_dashboard_credentials(
+        client.dashboard_credentials(name), client.base_url, json_out))
 
 
 @agent_app.command("rm")

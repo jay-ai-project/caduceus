@@ -152,3 +152,17 @@ async def test_protected_core_key_rejected():
     assert res.verified is False
     assert "managed by caduceus" in res.detail
     assert AIGW in prov.configs["cad-a1"]            # untouched
+
+async def test_restart_serve_refreshes_dashboard_port():
+    """U11/BR-DB4: a config restart reassigns the dashboard's published port too."""
+    prov = FakeProvisioner()
+    _seed(prov)
+    reg, svc = _service(prov)
+    rec = reg.get("a1")
+    rec.dashboard_password = "pw"
+    rec.dashboard_port = 41111
+    prov.published_dashboard["cad-a1"] = True
+    res = await svc.set_config("a1", ConfigChange(disable_tools=["browser"]))
+    assert res.strategy == "restart_serve"
+    assert reg.get("a1").dashboard_port == prov.dashboard_ports["cad-a1"]
+    assert reg.get("a1").dashboard_port != 41111

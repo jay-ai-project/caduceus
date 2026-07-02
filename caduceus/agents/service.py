@@ -13,9 +13,14 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from caduceus.agents.hermes_config import api_server_env, remote_setup_guidance, render_hermes_config
+from caduceus.agents.hermes_config import (
+    api_server_env,
+    dashboard_env,
+    remote_setup_guidance,
+    render_hermes_config,
+)
 from caduceus.agents.names import container_name, validate_name
-from caduceus.agents.provisioner import CONTAINER_WORKSPACE
+from caduceus.agents.provisioner import CONTAINER_WORKSPACE, DASHBOARD_CONTAINER_PORT
 from caduceus.agents.tokens import mint_token
 from caduceus.common.errors import ProxyError, invalid_request_error, upstream_error
 from caduceus.common.logging import get_logger
@@ -74,7 +79,8 @@ class AgentService:
 
     # ---- create (local, saga) ---------------------------------------
     async def create(self, name: str, wait: bool = True, progress=None, *,
-                     model: "str | None" = None, image: "str | None" = None) -> AgentRecord:
+                     model: "str | None" = None, image: "str | None" = None,
+                     dashboard: bool = True) -> AgentRecord:
         """Provision a local agent (FR-U7-2). `wait=False` runs the saga in the
         background: the `creating` record is returned immediately and `agent ls`
         reflects the live `creating → running → healthy | failed` progression.
@@ -82,6 +88,8 @@ class AgentService:
         `model` overrides the agent's model alias (rendered into its hermes config;
         non-sentinel models pass through the AI-Gateway to the upstream unchanged).
         `image` overrides the agent image tag for this create only.
+        `dashboard` (default on, BR-DB1) provisions the agent's hermes dashboard
+        behind per-agent basic-auth credentials.
         """
         _emit = make_emit(progress)
 
@@ -97,6 +105,7 @@ class AgentService:
             container_name=cn, workspace_path=self.provisioner.workspace_for(cn),
             runtime=self._runtime_provider(),
             model_alias=(model or self.model_alias),
+            dashboard_password=(mint_token() if dashboard else None),
             lifecycle=Lifecycle.creating, created_at=now, updated_at=now,
         )
         await self.registry.upsert(rec)
@@ -126,7 +135,10 @@ class AgentService:
             tag = await self.images.ensure_image(image or self.image_tag, progress=emit)
             await emit("creating container")
             env = {**api_server_env(token), "OPENAI_API_KEY": token}
-            await self.provisioner.create(cn, tag, env, rec.runtime)
+            if rec.dashboard_password:
+                env.update(dashboard_env(rec.name, rec.dashboard_password))
+            await self.provisioner.create(cn, tag, env, rec.runtime,
+                                          publish_dashboard=bool(rec.dashboard_password))
             created = True
             # Write the hermes LLM config into the (created, not-yet-started) container so
             # the API server boots with it present.
@@ -143,6 +155,7 @@ class AgentService:
                 raise upstream_error("could not determine published host port for agent")
             rec.host_port = hp
             rec.endpoint = f"http://127.0.0.1:{hp}"
+            await self._refresh_dashboard_port(rec)  # best-effort (BR-DB3)
             rec.lifecycle = Lifecycle.running
             rec.updated_at = _now()
             await self.registry.upsert(rec)
@@ -358,7 +371,27 @@ class AgentService:
                 rec.endpoint = f"http://127.0.0.1:{hp}"
         except Exception as exc:  # noqa: BLE001 — best-effort; keep starting
             log.warning("start: host_port refresh for %s failed: %s", rec.name, exc)
+        await self._refresh_dashboard_port(rec)  # BR-DB4: reassigned on every start
         return await self._set_lifecycle(rec, Lifecycle.running)
+
+    async def _refresh_dashboard_port(self, rec: AgentRecord) -> None:
+        """Re-read the dashboard's published host port after a container (re)start.
+
+        Best-effort by design (BR-DB3/DB4): a dashboard problem must never fail or
+        degrade the agent itself — on failure the port is cleared and the proxy
+        answers 404 until the next successful refresh.
+        """
+        if not rec.dashboard_password:
+            return
+        try:
+            rec.dashboard_port = await self.provisioner.host_port(
+                rec.container_name, DASHBOARD_CONTAINER_PORT)
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            rec.dashboard_port = None
+            log.warning("dashboard port refresh for %s failed: %s", rec.name, exc)
+        if rec.dashboard_port is None:
+            log.warning("agent %s: dashboard port not published; dashboard unavailable",
+                        rec.name)
 
     # ---- helpers -----------------------------------------------------
     def _require(self, name: str) -> AgentRecord:

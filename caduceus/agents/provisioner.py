@@ -55,14 +55,17 @@ SOUL_PATH = f"{CONTAINER_DATA}/SOUL.md"
 SKILLS_DIR = f"{CONTAINER_DATA}/skills"
 #: The API-server port hermes listens on inside the container.
 CONTAINER_API_PORT = 8642
+#: The dashboard port hermes' s6 dashboard service listens on inside the container (U11).
+DASHBOARD_CONTAINER_PORT = 9119
 #: Command passed to the official image's entrypoint to run the API server.
 GATEWAY_CMD = ("gateway", "run")
 
 
 class Provisioner(Protocol):
     def workspace_for(self, container: str) -> str: ...
-    async def create(self, container: str, image: str, env: dict[str, str], runtime: str) -> None: ...
-    async def host_port(self, container: str) -> Optional[int]: ...
+    async def create(self, container: str, image: str, env: dict[str, str], runtime: str,
+                     publish_dashboard: bool = False) -> None: ...
+    async def host_port(self, container: str, port: int = CONTAINER_API_PORT) -> Optional[int]: ...
     async def write_config(self, container: str, content: str) -> None: ...
     async def stop(self, container: str) -> None: ...
     async def start(self, container: str) -> None: ...
@@ -135,17 +138,20 @@ class DockerProvisioner:
         stays writable — no ownership reset needed."""
         workspace.mkdir(parents=True, exist_ok=True)
 
-    async def create(self, container: str, image: str, env: dict[str, str], runtime: str) -> None:
+    async def create(self, container: str, image: str, env: dict[str, str], runtime: str,
+                     publish_dashboard: bool = False) -> None:
         """`docker create` the agent container (created, not started) from the official
         image. Bind-mounts the persistent host workspace at /opt/data/workspace (cwd); the
         rest of HERMES_HOME (/opt/data) is left on the image's anonymous volume. Publishes
-        8642 to a Docker-assigned host loopback port, runs `gateway run`. Fails fast if
-        `runtime` is unavailable."""
+        8642 (and 9119 when the dashboard is enabled, U11) to Docker-assigned host loopback
+        ports, runs `gateway run`. Fails fast if `runtime` is unavailable."""
         workspace = Path(self.workspace_for(container))
         await self._ensure_workspace(workspace)
         args = ["create", "--name", container, "--restart", "no",
                 "-p", f"127.0.0.1::{CONTAINER_API_PORT}",
                 "-v", f"{workspace}:{CONTAINER_WORKSPACE}", "-w", CONTAINER_WORKSPACE]
+        if publish_dashboard:
+            args += ["-p", f"127.0.0.1::{DASHBOARD_CONTAINER_PORT}"]
         if runtime and runtime != "runc":
             args += ["--runtime", runtime]
         for key, value in {**self._layout_env(), **env}.items():
@@ -163,8 +169,8 @@ class DockerProvisioner:
                 )
             raise upstream_error(f"docker create failed (rc={rc}): {msg[:300]}")
 
-    async def host_port(self, container: str) -> Optional[int]:
-        rc, out, _ = await self._run("port", container, str(CONTAINER_API_PORT), timeout=15.0)
+    async def host_port(self, container: str, port: int = CONTAINER_API_PORT) -> Optional[int]:
+        rc, out, _ = await self._run("port", container, str(port), timeout=15.0)
         if rc != 0:
             return None
         # output like "127.0.0.1:49xxx" (possibly multiple lines)

@@ -24,6 +24,7 @@ responses, thinking, and tool-call display.
 - 💬 **Streaming chat** — talk to any agent with session-persistent, streaming responses; see **thinking** and **tool calls** as they happen.
 - 🖥️ **Web UI** — a dependency-free dashboard to see status, add agents (with live provisioning progress), and chat — served loopback-only.
 - 🛠️ **Per-agent config** — edit a local agent's skills, tools, and persona ("soul").
+- 🧭 **Agent dashboards** — each local agent's own hermes dashboard, reverse-proxied under the caduceus origin at `/agents/<name>/dashboard/` (per-agent login credentials via `agent dashboard-cred`).
 
 > **Status:** alpha / under active development. Interfaces may change.
 
@@ -117,8 +118,16 @@ single, dependency-free page that lets you:
 - **Dashboard** — watch all agents with live lifecycle/health (hover a health badge for the cause) and connection info, pushed over a single `/api/events` SSE stream.
 - **Add agent** — create a local agent (with live provisioning progress, optional model/image override) or register a remote endpoint.
 - **Chat** — stream responses with collapsible **thinking** blocks and **tool-call** cards, a **Stop** button to cancel an in-flight turn, and lightweight markdown rendering (code blocks, inline code, bold, links); prior turns are best-effort loaded from the agent's session (local and remote).
+- **Agent dashboards** — each local agent card links to the agent's own **hermes dashboard** (config, API keys, sessions), reverse-proxied same-origin at `/agents/<name>/dashboard/` — HTTP, SSE and WebSockets (embedded chat/terminal) all relay through the Control API. The dashboard has its own login: the **Creds** button (or `caduceus agent dashboard-cred <name>`) shows the per-agent username/password.
 
 It is served **loopback-only with no authentication** — intended as a personal local tool. It is never exposed on the AI-Gateway port.
+
+> **Agent-dashboard security note.** Dashboards are provisioned by default for new local agents
+> (`--no-dashboard` to opt out) and are only reachable via host loopback. Inside the container the
+> dashboard binds non-loopback, which engages hermes' mandatory auth gate — caduceus mints a
+> per-agent password and injects it via container env (visible to anyone who can run
+> `docker inspect`, i.e. you) and stores it in `~/.caduceus/state.json` alongside the agent's other
+> secrets. Sessions don't survive an agent restart (re-login).
 
 ## CLI
 
@@ -132,10 +141,11 @@ caduceus gateway config [--get] [--upstream-url URL] [--model NAME] [--runtime r
 caduceus doctor [--json]             Check upstream LLM reachability, Docker, hermes image,
                                      container runtime (gVisor), daemon
 
-caduceus agent create <name> [--wait] [--model M] [--image I] [--json]
+caduceus agent create <name> [--wait] [--model M] [--image I] [--no-dashboard] [--json]
                                      Provision a local containerized agent in the background
                                      (--wait blocks with live progress until ready;
-                                      --model sets the agent's model, --image overrides its image)
+                                      --model sets the agent's model, --image overrides its image;
+                                      --no-dashboard skips the agent's web dashboard)
 caduceus agent register <name> --endpoint <url> [--auth TOKEN]
                                      Register an existing remote hermes endpoint (--auth = the
                                      remote's own API-server key, if it already has one)
@@ -144,6 +154,8 @@ caduceus agent chat <name> [query]   Chat (streaming); omit query for an interac
 caduceus agent stop|start <name>     Stop / start a local agent
 caduceus agent rm <name>             Remove an agent (and its container, if local)
 caduceus agent logs <name> [-f]      Stream a local agent's logs
+caduceus agent dashboard-cred <name> [--json]
+                                     Show the agent dashboard's URL + login credentials
 caduceus agent config <name> [--get] [--remove-skill S]
         [--enable-tool T] [--disable-tool T] [--soul TEXT | --soul-file PATH]
         [--set key=value]            View / edit a local agent's config:

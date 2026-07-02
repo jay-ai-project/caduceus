@@ -27,6 +27,8 @@ class FakeProvisioner:
         self.env: dict[str, str] = {}
         self.runtimes: dict[str, str] = {}
         self.ports: dict[str, int] = {}
+        self.dashboard_ports: dict[str, int] = {}
+        self.published_dashboard: dict[str, bool] = {}
         self.calls: list[str] = []
         self.fail_on = fail_on
         self.unavailable_runtimes = unavailable_runtimes or set()
@@ -40,18 +42,25 @@ class FakeProvisioner:
     def workspace_for(self, container: str) -> str:
         return f"/ws/{container}"
 
-    async def create(self, container: str, image: str, env: dict[str, str], runtime: str) -> None:
+    async def create(self, container: str, image: str, env: dict[str, str], runtime: str,
+                     publish_dashboard: bool = False) -> None:
         self._maybe_fail("create")
         if runtime and runtime != "runc" and runtime in self.unavailable_runtimes:
             raise RuntimeUnavailable(f"runtime '{runtime}' not available")
         self.containers[container] = "created"
         self.env.update(env)
         self.runtimes[container] = runtime
+        self.published_dashboard[container] = publish_dashboard
         self.ports[container] = self._next_port
         self._next_port += 1
+        if publish_dashboard:
+            self.dashboard_ports[container] = self._next_port
+            self._next_port += 1
 
-    async def host_port(self, container: str) -> Optional[int]:
+    async def host_port(self, container: str, port: int = 8642) -> Optional[int]:
         self.calls.append("host_port")
+        if port == 9119:  # dashboard port (U11)
+            return self.dashboard_ports.get(container)
         return self.ports.get(container)
 
     async def write_config(self, container: str, content: str) -> None:
@@ -65,9 +74,12 @@ class FakeProvisioner:
     async def start(self, container: str) -> None:
         self._maybe_fail("start")
         self.containers[container] = "running"
-        # Docker reassigns the published ephemeral host port on each start (U8-D5).
+        # Docker reassigns the published ephemeral host ports on each start (U8-D5).
         self.ports[container] = self._next_port
         self._next_port += 1
+        if self.published_dashboard.get(container):
+            self.dashboard_ports[container] = self._next_port
+            self._next_port += 1
 
     async def remove(self, container: str) -> None:
         self.calls.append("remove")
@@ -341,7 +353,8 @@ class FakeAgentService:
         self._agents = {a.name: a for a in (agents or [])}
         self.removed: list[str] = []
 
-    async def create(self, name, wait=True, progress=None, *, model=None, image=None):
+    async def create(self, name, wait=True, progress=None, *, model=None, image=None,
+                     dashboard=True):
         if wait and progress is not None:
             for phase in ("preparing image", "creating container", "configuring agent",
                           "starting agent", "warming up"):
@@ -455,8 +468,12 @@ class FakeControlAPIClient:
 
     def __init__(self, *, up=True, agents=None, chat_script=None,
                  snapshot=None, result=None, raise_error=None, status=None,
-                 gateway_config=None, gateway_config_applied=None):
+                 gateway_config=None, gateway_config_applied=None,
+                 dashboard_creds=None):
         self.up = up
+        self.base_url = "http://127.0.0.1:9700"
+        self._dashboard_creds = dashboard_creds
+        self.created_specs = []
         self._agents = list(agents or [])
         self._chat = chat_script if chat_script is not None else [ChatEvent.token_("hello"), ChatEvent.done_()]
         self._snapshot = snapshot or ConfigSnapshot(skills=["s1"])
@@ -478,6 +495,7 @@ class FakeControlAPIClient:
         return self._status
 
     def create_agent(self, spec, wait=False):
+        self.created_specs.append(spec)
         if self._raise:
             raise self._raise
         if wait:
@@ -491,6 +509,12 @@ class FakeControlAPIClient:
     def register_agent(self, spec):
         return {"agent": AgentView(name=spec.name, kind="remote", lifecycle="registered", health="unknown").to_dict(),
                 "guidance": "point your remote hermes at the AI-Gateway"}
+
+    def dashboard_credentials(self, name):
+        from caduceus.cli.client import ControlError
+        if self._dashboard_creds is None:
+            raise ControlError(f"agent '{name}' has no dashboard", exit_code=2)
+        return self._dashboard_creds
 
     def list_agents(self, deep=False):
         return list(self._agents)

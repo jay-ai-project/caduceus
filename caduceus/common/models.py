@@ -80,6 +80,12 @@ class AgentRecord:
     host_port: Optional[int] = None
     #: container runtime used at spawn: "runc" (default) | "runsc" (gVisor). Informational.
     runtime: str = "runc"
+    #: published host loopback port mapped to the container's 9119 (`hermes dashboard`).
+    #: None = dashboard disabled for this agent (U11).
+    dashboard_port: Optional[int] = None
+    #: basic-auth password for the agent's dashboard (username = agent name).
+    #: SECRET — never projected into AgentView (U11).
+    dashboard_password: Optional[str] = None
     model_alias: str = "default"
     session_id: Optional[str] = None
     lifecycle: Lifecycle = Lifecycle.creating
@@ -98,6 +104,8 @@ class AgentRecord:
             "workspace_path": self.workspace_path,
             "host_port": self.host_port,
             "runtime": self.runtime,
+            "dashboard_port": self.dashboard_port,
+            "dashboard_password": self.dashboard_password,
             "model_alias": self.model_alias,
             "session_id": self.session_id,
             "lifecycle": self.lifecycle.value,
@@ -119,6 +127,8 @@ class AgentRecord:
             workspace_path=d.get("workspace_path"),
             host_port=d.get("host_port"),
             runtime=d.get("runtime", "runc"),
+            dashboard_port=d.get("dashboard_port"),
+            dashboard_password=d.get("dashboard_password"),
             model_alias=d.get("model_alias", "default"),
             session_id=d.get("session_id"),
             lifecycle=Lifecycle(d.get("lifecycle", "creating")),

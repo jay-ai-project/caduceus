@@ -119,6 +119,18 @@ function renderAgents() {
     const actions = el("div", { class: "actions" });
     actions.append(el("button", { class: "btn sm primary", text: "Chat",
       "data-testid": `chat-${a.name}`, onclick: (e) => { e.stopPropagation(); openChat(a.name); } }));
+    if (a.dashboard) {
+      // U11: same-origin proxy onto the agent's hermes dashboard (new tab).
+      actions.append(el("a", { class: "btn sm", text: "Dashboard",
+        href: `/agents/${encodeURIComponent(a.name)}/dashboard/`,
+        target: "_blank", rel: "noopener",
+        "data-testid": `dashboard-${a.name}`,
+        onclick: (e) => e.stopPropagation() }));
+      actions.append(el("button", { class: "btn sm", text: "Creds",
+        title: "dashboard login credentials",
+        "data-testid": `dash-cred-${a.name}`,
+        onclick: (e) => { e.stopPropagation(); showDashboardCreds(a.name); } }));
+    }
     if (a.lifecycle === "running") {
       actions.append(el("button", { class: "btn sm", text: "Stop", disabled: remote,
         title: remote ? "remote agents can't be stopped here" : "",
@@ -140,6 +152,18 @@ async function agentAction(name, action) {
   // No manual refresh: the mutation broadcasts a fresh snapshot over /api/events.
   try { await fetchJSON(`/agents/${encodeURIComponent(name)}/${action}`, { method: "POST" }); }
   catch (e) { alert(`${action} failed: ${e.message}`); }
+}
+
+async function showDashboardCreds(name) {
+  // Credentials live only behind this dedicated route (never in snapshots);
+  // fetched on demand, password copied to the clipboard when permitted.
+  try {
+    const c = await fetchJSON(`/agents/${encodeURIComponent(name)}/dashboard-credentials`);
+    let copied = false;
+    try { await navigator.clipboard.writeText(c.password); copied = true; } catch (_) {}
+    alert(`Dashboard login for '${name}'\n\nusername: ${c.username}\npassword: ${c.password}`
+      + (copied ? "\n\n(password copied to clipboard)" : ""));
+  } catch (e) { alert(`credentials unavailable: ${e.message}`); }
 }
 
 async function removeAgent(name) {

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Optional
 from caduceus import __version__ as VERSION
 from caduceus.agents.health import HealthChecker, HealthProbes
 from caduceus.agents.images import ImageBuilder
-from caduceus.agents.provisioner import DockerProvisioner
+from caduceus.agents.provisioner import DASHBOARD_CONTAINER_PORT, DockerProvisioner
 from caduceus.agents.registry import Registry
 from caduceus.agents.service import AgentService
 from caduceus.common.dto import AgentView, ConfigSnapshot, GatewayStatus, ReloadStrategy
@@ -297,6 +297,14 @@ def _make_reload(provisioner, registry, close_transport):
         if hp:
             rec.host_port = hp
             rec.endpoint = f"http://127.0.0.1:{hp}"
+        if rec.dashboard_password:  # BR-DB4: dashboard port reassigned too
+            try:
+                rec.dashboard_port = await provisioner.host_port(
+                    rec.container_name, DASHBOARD_CONTAINER_PORT)
+            except Exception as exc:  # noqa: BLE001 — best-effort (BR-DB3)
+                rec.dashboard_port = None
+                log.warning("config reload: dashboard port refresh for %s failed: %s",
+                            rec.name, exc)
         rec.lifecycle = Lifecycle.running
         rec.updated_at = _now()
         await registry.upsert(rec)

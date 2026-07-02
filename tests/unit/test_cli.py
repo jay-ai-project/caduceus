@@ -187,3 +187,38 @@ def test_agent_config_rejected_change_is_usage_error(monkeypatch):
     res = runner.invoke(cli_app.app, ["agent", "config", "a1", "--add-skill", "x"])
     assert res.exit_code == 2
     assert "not applied" in (res.stdout + str(res.stderr))
+
+
+# ---------- U11: dashboard-cred + create --no-dashboard ----------
+
+def test_dashboard_cred_human_and_json(monkeypatch):
+    from caduceus.common.dto import DashboardCredentials
+
+    creds = DashboardCredentials(username="a1", password="pw-1", url="/agents/a1/dashboard/")
+    _patch_client(monkeypatch, dashboard_creds=creds)
+    res = runner.invoke(cli_app.app, ["agent", "dashboard-cred", "a1"])
+    assert res.exit_code == 0
+    assert "http://127.0.0.1:9700/agents/a1/dashboard/" in res.stdout   # absolute URL
+    assert "username: a1" in res.stdout and "pw-1" in res.stdout
+
+    res = runner.invoke(cli_app.app, ["agent", "dashboard-cred", "a1", "--json"])
+    assert res.exit_code == 0
+    assert json.loads(res.stdout)["password"] == "pw-1"
+
+
+def test_dashboard_cred_missing_is_usage_error(monkeypatch):
+    _patch_client(monkeypatch)  # no creds configured → ControlError(exit_code=2)
+    res = runner.invoke(cli_app.app, ["agent", "dashboard-cred", "ghost"])
+    assert res.exit_code == 2
+    assert "no dashboard" in res.output
+
+
+def test_create_no_dashboard_flag_lands_in_spec(monkeypatch):
+    fake = _patch_client(monkeypatch)
+    res = runner.invoke(cli_app.app, ["agent", "create", "n1", "--no-dashboard"])
+    assert res.exit_code == 0
+    assert fake.created_specs[0].dashboard is False
+
+    res = runner.invoke(cli_app.app, ["agent", "create", "n2"])
+    assert res.exit_code == 0
+    assert fake.created_specs[1].dashboard is True                       # default on

@@ -140,6 +140,20 @@ def api_server_env(token: str, port: int = 8642) -> dict[str, str]:
     }
 
 
+def dashboard_env(username: str, password: str) -> dict[str, str]:
+    """Env that enables the image's s6-supervised `hermes dashboard` service (U11).
+
+    The dashboard binds 0.0.0.0 inside the container (host-exposed on loopback only),
+    which engages hermes' auth gate — satisfied by the bundled basic password provider
+    (BR-DB1/DB2). Username = agent name, password = caduceus-minted secret.
+    """
+    return {
+        "HERMES_DASHBOARD": "true",
+        "HERMES_DASHBOARD_BASIC_AUTH_USERNAME": username,
+        "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD": password,
+    }
+
+
 def remote_setup_guidance(aigateway_url: str, token: str, model_alias: str = "default",
                           own_auth: bool = False) -> str:
     """Instructions returned on `register` so the user can route a remote hermes

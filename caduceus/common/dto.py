@@ -24,13 +24,17 @@ class CreateSpec:
     model: Optional[str] = None
     #: agent image tag override for this create (None → pinned default).
     image: Optional[str] = None
+    #: provision the agent's dashboard (default on; BR-DB1 — U11).
+    dashboard: bool = True
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "model": self.model, "image": self.image}
+        return {"name": self.name, "model": self.model, "image": self.image,
+                "dashboard": self.dashboard}
 
     @classmethod
     def from_dict(cls, d: dict) -> "CreateSpec":
-        return cls(name=d["name"], model=d.get("model"), image=d.get("image"))
+        return cls(name=d["name"], model=d.get("model"), image=d.get("image"),
+                   dashboard=d.get("dashboard", True))
 
 
 @dataclass
@@ -61,6 +65,8 @@ class AgentView:
     endpoint: Optional[str] = None
     model_alias: str = "default"
     has_session: bool = False
+    #: the agent has a routable dashboard (U11) — drives the Web UI card link.
+    dashboard: bool = False
     created_at: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -69,6 +75,7 @@ class AgentView:
             "health": self.health, "health_detail": self.health_detail,
             "endpoint": self.endpoint,
             "model_alias": self.model_alias, "has_session": self.has_session,
+            "dashboard": self.dashboard,
             "created_at": self.created_at,
         }
 
@@ -78,7 +85,8 @@ class AgentView:
             name=d["name"], kind=d["kind"], lifecycle=d["lifecycle"], health=d["health"],
             health_detail=d.get("health_detail", ""),
             endpoint=d.get("endpoint"), model_alias=d.get("model_alias", "default"),
-            has_session=d.get("has_session", False), created_at=d.get("created_at"),
+            has_session=d.get("has_session", False), dashboard=d.get("dashboard", False),
+            created_at=d.get("created_at"),
         )
 
     @classmethod
@@ -89,7 +97,9 @@ class AgentView:
             health=(hs.level if hs else HealthLevel.unknown).value,
             health_detail=(hs.detail if hs else ""),
             endpoint=rec.endpoint, model_alias=rec.model_alias,
-            has_session=rec.session_id is not None, created_at=rec.created_at,
+            has_session=rec.session_id is not None,
+            dashboard=rec.dashboard_port is not None,
+            created_at=rec.created_at,
         )
 
 
@@ -119,6 +129,24 @@ class GatewayStatus:
             upstream=d.get("upstream", HealthLevel.unknown.value),
             agent_count=d.get("agent_count", 0), version=d.get("version", ""),
         )
+
+
+# ---- dashboard credentials (U11) ----------------------------------
+@dataclass
+class DashboardCredentials:
+    """Login credentials for an agent's dashboard. Only ever carried by the
+    dedicated credentials route/CLI (FR-U11-6) — never in AgentView or events."""
+    username: str
+    password: str
+    #: proxy path on the Control API (relative; the CLI renders it absolute).
+    url: str
+
+    def to_dict(self) -> dict:
+        return {"username": self.username, "password": self.password, "url": self.url}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DashboardCredentials":
+        return cls(username=d["username"], password=d["password"], url=d["url"])
 
 
 # ---- gateway upstream config (U6) ---------------------------------

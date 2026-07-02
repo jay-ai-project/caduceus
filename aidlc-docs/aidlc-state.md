@@ -427,6 +427,28 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   - shared-infrastructure.md: dashboard inbound row added.
   - Artifacts: construction/u11-agent-dashboard/functional-design/{domain-entities,
     business-logic-model,business-rules}.md
+- [x] **U11 Functional Design** (light) — **APPROVED** (2026-07-02, committed 9636318).
+- [x] **U11 Code Generation — Part 1 (Plan)** — **APPROVED** (2026-07-02).
+- [x] **U11 Code Generation — Part 2 (Generation)** — complete, **awaiting approval gate**
+  - All 14 plan steps [x]. Created daemon/dashboard_proxy.py (pure helpers) + 2 test files;
+    modified models/dto/provisioner/hermes_config/service/wiring/control_api (proxy + WS
+    bridge + credentials route)/cli(app,client,render)/webui(app.js,styles)/pyproject/README
+    + fakes & 4 test files extended.
+  - **337 tests green** (332 unit+PBT, was 308 → +24; 5 Playwright e2e, was 4 → +1).
+  - Deviations: fork subagent unavailable → tests inline (U8 precedent); websockets>=13
+    (not >=12; new asyncio client API); Starlette 1.3 → router.add_event_handler.
+  - PBT-U11-2 caught a test-expectation bug during authoring (Connection headers inside the
+    random list nominate tokens too) — implementation correct.
+  - Artifacts: construction/u11-agent-dashboard/code/code-summary.md;
+    plan construction/plans/u11-agent-dashboard-code-generation-plan.md (all [x]).
+- [~] **U11 Build & Test** — live testing in progress (user-driven)
+  - **Defect U11-L1 found & fixed live**: hermes 0.17.0 login page hardcodes absolute
+    fetch('/auth/password-login') + unprefixed next-redirect (upstream prefix-support gap;
+    SPA index is rewritten, login page is not) → proxied sign-in failed. Fix: caduceus-side
+    `rewrite_login_page()` (targeted, idempotent), proxy buffers text/html to apply it
+    (content-length recomputed), Accept-Encoding: identity forced upstream. +2 regression
+    tests. **339 green** (334 unit+PBT + 5 e2e). Live-verified: proxied login 200 →
+    /api/auth/me authenticated → SPA index with prefixed assets.
 
 ## Current Status
 - **Lifecycle Phase**: U10 Review Remediation — ✅ COMPLETE (all phases committed;

@@ -42,7 +42,11 @@ def webui_server():
     Yields the base URL (e.g. ``http://127.0.0.1:54321``). Uses fake services
     seeded with one local agent so the dashboard has something to render.
     """
-    services = build_fake_services(agents=[make_agent(name="demo-agent")])
+    demo = make_agent(name="demo-agent")
+    demo.dashboard_port = 59119            # U11: card shows Dashboard link + Creds
+    demo.dashboard_password = "e2e-pw"
+    plain = make_agent(name="plain-agent")  # no dashboard → no link
+    services = build_fake_services(agents=[demo, plain])
     app = build_control_app(services)
 
     port = _free_port()
