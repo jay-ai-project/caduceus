@@ -378,6 +378,56 @@ Per unit (each stage is a gate): Functional Design → NFR Requirements → NFR 
   `timeout_graceful_shutdown=5` on both servers. Verified: stop completes ~7s even
   with a live SSE subscriber.
 
+## 🔵 NEW CYCLE — U11 Agent Dashboard Routing (started 2026-07-02)
+- **Trigger**: user request — caduceus가 연결된 hermes agent dashboard로의 접근 경로를
+  라우팅 (Web UI agent card 링크 + `http://caduceus-host/<agent-path>/dashboard` 프록시;
+  CORS로 불가 시 단순 링크 허용).
+- **Phase**: INCEPTION — Requirements Analysis (spike done, questions out).
+- **Spike findings (hermes 0.17.0 / image v2026.6.19)**: dashboard = 별도 서버(:9119),
+  이미지 s6 슬롯 내장 (`HERMES_DASHBOARD=true`로 CMD와 병행 기동, 웹번들 프리빌드);
+  컨테이너 내 0.0.0.0 바인드 → auth gate 강제 (basic password provider env로 충족);
+  **X-Forwarded-Prefix sub-path 리버스 프록시 네이티브 지원** (SPA base path, asset 재작성,
+  쿠키 Path 모두 처리 → CORS 문제 없음); WS(`/api/pty`,`/api/ws`) 브리지가 유일한 복잡도;
+  포트/env는 create 시에만 → 기존 agent는 컨테이너 재생성 필요.
+- [x] Requirements Analysis (U11) — complete, **awaiting approval gate**
+  - Answers: Q1=A full same-origin reverse proxy (HTTP+SSE+**WS**, X-Forwarded-Prefix) at
+    `/agents/{name}/dashboard`; Q2=A dashboard default-ON for new local agents
+    (`--no-dashboard` opt-out); **Q3=user-directed: NO backward-compat/fallback/migration
+    (clean env)**; Q4=A per-agent minted credentials (username=name, password=secret,
+    dedicated route/CLI + Web UI copy, never in AgentView); Q5=B remote out of scope;
+    Q6=A extensions = Security advisory/non-blocking + Resiliency full + PBT full.
+  - Scope: agents/{provisioner,models via common,service}, daemon/control_api (proxy+WS
+    bridge), cli, webui. New AgentRecord fields dashboard_port/dashboard_password(secret).
+  - Artifacts: requirements/u11-agent-dashboard-verification-questions.md,
+    requirements/u11-agent-dashboard-requirements.md.
+- [x] Requirements Analysis (U11) — **APPROVED** (2026-07-02).
+- [x] Workflow Planning (U11) — complete, **awaiting approval gate**
+  - Stages to EXECUTE: Functional Design (light, incl. WS-dependency decision +
+    shared-infrastructure.md update) → Code Generation → Build & Test.
+  - Stages to SKIP: Application Design, Units Generation, NFR Req/Design,
+    Infrastructure Design (folded into FD), User Stories.
+  - Risk: Medium (WS bridge new mechanism; unbounded proxy streams vs U10-L1 graceful
+    shutdown; provisioner saga re-touches U8-D3 port-after-start path). Rollback: Easy.
+  - Artifacts: plans/u11-agent-dashboard-execution-plan.md.
+- [x] Workflow Planning (U11) — **APPROVED** (2026-07-02).
+
+### 🟢 CONSTRUCTION (U11)
+- [x] **U11 Functional Design** (light) — complete, **awaiting approval gate**
+  - Inline decisions D1–D9: **reintroduce `websockets>=12`** (WS-bridge client; server =
+    Starlette WS); shared streaming httpx client (connect=5s, read=None, aiter_raw);
+    route layout incl. `dashboard-credentials` literal + 308 trailing-slash; string-concat
+    URL join (no urljoin, authority pinned); RFC-7230 hop-by-hop filter (fixed set +
+    Connection-named); WS bridge = connect-upstream-then-accept, bidirectional pumps,
+    close-code propagation; password = mint_token(); provisioner `host_port(c, port=…)`
+    generalized + DASHBOARD_CONTAINER_PORT=9119 + publish flag; CreateSpec.dashboard=True.
+  - Models: AgentRecord.dashboard_port + dashboard_password(SECRET); AgentView.dashboard;
+    DashboardCredentials DTO. Dashboard-port refresh on every container-restart path
+    (start/config-restart). Dashboard failure = best-effort (never fails create; BR-DB3).
+  - Rules BR-DB1..16 + ADV-1..3 (security advisory, non-blocking); PBT-U11-1..3.
+  - shared-infrastructure.md: dashboard inbound row added.
+  - Artifacts: construction/u11-agent-dashboard/functional-design/{domain-entities,
+    business-logic-model,business-rules}.md
+
 ## Current Status
 - **Lifecycle Phase**: U10 Review Remediation — ✅ COMPLETE (all phases committed;
   → Operations placeholder).

@@ -37,6 +37,7 @@ Ports are configurable; chosen to avoid clashes with hermes serve (9119) and Oll
 | Runtime | plain Docker containers via `docker` CLI (`runc` default, optional `runsc`/gVisor) |
 | In-container process | `hermes gateway run` with the API-server platform (env-enabled), port 8642 |
 | Inbound (caduceus→agent) | `-p 127.0.0.1::8642` → ephemeral host port (`host_port`/`endpoint`), Bearer-authed |
+| Inbound dashboard (U11) | `-p 127.0.0.1::9119` → ephemeral host port (`dashboard_port`); in-container `hermes dashboard` via s6 (`HERMES_DASHBOARD=true` + basic-auth env); reverse-proxied same-origin at Control API `/agents/<name>/dashboard/` (X-Forwarded-Prefix; HTTP+SSE+WS) |
 | Outbound (agent→AI-Gateway) | unchanged — bridge gw IP `:9701` |
 | Transport | single `HermesApiTransport` (HTTP+SSE) for local **and** remote |
 | Health/status | HTTP `/health` + live `docker inspect` (real-time, no cache) |
